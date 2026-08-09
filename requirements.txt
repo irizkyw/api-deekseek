@@ -1,0 +1,7 @@
+curl-cffi==0.7.4
+wasmtime
+numpy
+nodriver
+drissionpage
+mcp
+python-dotenv

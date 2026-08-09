@@ -1,0 +1,270 @@
+{
+  "communities": {
+    "0": [
+      "dsk_api",
+      "dsk_api_apierror_init",
+      "dsk_api_authenticationerror",
+      "dsk_api_cloudflareerror",
+      "dsk_api_deepseekapi_init",
+      "dsk_api_deepseekerror",
+      "dsk_api_ratelimiterror",
+      "dsk_api_rationale_15",
+      "dsk_api_rationale_19",
+      "dsk_api_rationale_23",
+      "dsk_api_rationale_31",
+      "dsk_pow",
+      "dsk_pow_deepseekpow",
+      "dsk_pow_rationale_1"
+    ],
+    "1": [
+      "dsk_cloudflarebypasser",
+      "dsk_server",
+      "dsk_server_bypass_cloudflare",
+      "dsk_server_cleanup_display",
+      "dsk_server_cookieresponse",
+      "dsk_server_get_cookies",
+      "dsk_server_get_html",
+      "dsk_server_is_safe_url",
+      "dsk_server_py_chromiumpage",
+      "dsk_server_rationale_66",
+      "dsk_server_verify_page_loaded",
+      "exception"
+    ],
+    "2": [
+      "dsk_cloudflarebypasser_cloudflarebypasser",
+      "dsk_cloudflarebypasser_cloudflarebypasser_bypass",
+      "dsk_cloudflarebypasser_cloudflarebypasser_click_verification_button",
+      "dsk_cloudflarebypasser_cloudflarebypasser_init",
+      "dsk_cloudflarebypasser_cloudflarebypasser_is_bypassed",
+      "dsk_cloudflarebypasser_cloudflarebypasser_locate_cf_button",
+      "dsk_cloudflarebypasser_cloudflarebypasser_log_message",
+      "dsk_cloudflarebypasser_cloudflarebypasser_search_recursively_shadow_root_with_cf_input",
+      "dsk_cloudflarebypasser_cloudflarebypasser_search_recursively_shadow_root_with_iframe",
+      "dsk_cloudflarebypasser_py_chromiumpage"
+    ],
+    "3": [
+      "dsk_api_deepseekapi",
+      "example",
+      "example_main",
+      "example_print_response",
+      "example_py_any",
+      "example_rationale_32",
+      "example_rationale_9",
+      "example_run_chat_example"
+    ],
+    "4": [
+      "dsk_pow_deepseekhash",
+      "dsk_pow_deepseekhash_calculate_hash",
+      "dsk_pow_deepseekhash_init",
+      "dsk_pow_deepseekhash_write_to_memory",
+      "dsk_pow_deepseekpow_init",
+      "dsk_pow_deepseekpow_solve_challenge",
+      "dsk_pow_py_any",
+      "dsk_pow_rationale_93"
+    ],
+    "5": [
+      "basemodel",
+      "openai_bridge",
+      "openai_bridge_build_prompt",
+      "openai_bridge_chat_completions",
+      "openai_bridge_chatcompletionrequest",
+      "openai_bridge_message"
+    ],
+    "6": [
+      "dsk_api_apierror",
+      "dsk_api_deepseekapi_create_chat_session",
+      "dsk_api_deepseekapi_get_pow_challenge",
+      "dsk_api_deepseekapi_make_request",
+      "dsk_api_rationale_173",
+      "dsk_api_rationale_35"
+    ],
+    "7": [
+      "dsk_api_deepseekapi_chat_completion",
+      "dsk_api_deepseekapi_get_headers",
+      "dsk_api_networkerror",
+      "dsk_api_rationale_190",
+      "dsk_api_rationale_27"
+    ],
+    "8": [
+      "dsk_bypass",
+      "dsk_bypass_get_and_save_cookies",
+      "dsk_bypass_rationale_10",
+      "dsk_bypass_run_server_background",
+      "dsk_bypass_validate_cookies"
+    ],
+    "9": [
+      "dsk_api_deepseekapi_parse_chunk",
+      "dsk_api_py_any",
+      "dsk_api_rationale_297"
+    ],
+    "10": [
+      "dsk_run_and_get_cookies",
+      "dsk_run_and_get_cookies_get_and_save_cookies",
+      "dsk_run_and_get_cookies_run_server_background"
+    ],
+    "11": [
+      "dsk_api_deepseekapi_refresh_cookies",
+      "dsk_api_rationale_90"
+    ]
+  },
+  "cohesion": {
+    "0": 0.24175824175824176,
+    "1": 0.2727272727272727,
+    "2": 0.4,
+    "3": 0.39285714285714285,
+    "4": 0.2857142857142857,
+    "5": 0.6,
+    "6": 0.4666666666666667,
+    "7": 0.4,
+    "8": 0.5,
+    "9": 0.6666666666666666,
+    "10": 0.6666666666666666,
+    "11": 1.0
+  },
+  "gods": [
+    {
+      "id": "dsk_api_deepseekapi",
+      "label": "DeepSeekAPI",
+      "degree": 16
+    },
+    {
+      "id": "dsk_pow_deepseekpow",
+      "label": "DeepSeekPOW",
+      "degree": 12
+    },
+    {
+      "id": "dsk_cloudflarebypasser_cloudflarebypasser",
+      "label": "CloudflareBypasser",
+      "degree": 11
+    },
+    {
+      "id": "dsk_api_apierror",
+      "label": "APIError",
+      "degree": 10
+    },
+    {
+      "id": "dsk_api_deepseekerror",
+      "label": "DeepSeekError",
+      "degree": 9
+    },
+    {
+      "id": "dsk_api_authenticationerror",
+      "label": "AuthenticationError",
+      "degree": 8
+    },
+    {
+      "id": "dsk_api_ratelimiterror",
+      "label": "RateLimitError",
+      "degree": 7
+    },
+    {
+      "id": "dsk_api_networkerror",
+      "label": "NetworkError",
+      "degree": 7
+    },
+    {
+      "id": "dsk_server_bypass_cloudflare",
+      "label": "bypass_cloudflare()",
+      "degree": 7
+    },
+    {
+      "id": "dsk_pow_deepseekhash",
+      "label": "DeepSeekHash",
+      "degree": 5
+    }
+  ],
+  "surprises": [
+    {
+      "source": "ChatCompletionRequest",
+      "target": "DeepSeekAPI",
+      "source_files": [
+        "openai_bridge.py",
+        "dsk/api.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "uses",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities"
+    },
+    {
+      "source": "Message",
+      "target": "DeepSeekAPI",
+      "source_files": [
+        "openai_bridge.py",
+        "dsk/api.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "uses",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities"
+    },
+    {
+      "source": "bypass_cloudflare()",
+      "target": "CloudflareBypasser",
+      "source_files": [
+        "dsk/server.py",
+        "dsk/CloudflareBypasser.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    },
+    {
+      "source": "CookieResponse",
+      "target": "CloudflareBypasser",
+      "source_files": [
+        "dsk/server.py",
+        "dsk/CloudflareBypasser.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "uses",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    },
+    {
+      "source": "NetworkError",
+      "target": "DeepSeekPOW",
+      "source_files": [
+        "dsk/api.py",
+        "dsk/pow.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "uses",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `DeepSeekError` connect `Community 0` to `Community 1`, `Community 6`, `Community 7`?",
+      "why": "High betweenness centrality (0.245) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `bypass_cloudflare()` connect `Community 1` to `Community 2`?",
+      "why": "High betweenness centrality (0.229) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `DeepSeekAPI` connect `Community 3` to `Community 0`, `Community 5`, `Community 6`, `Community 7`, `Community 9`, `Community 11`?",
+      "why": "High betweenness centrality (0.227) - this node is a cross-community bridge."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 3 inferred relationships involving `DeepSeekAPI` (e.g. with `DeepSeekPOW` and `ChatCompletionRequest`) actually correct?",
+      "why": "`DeepSeekAPI` has 3 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 7 inferred relationships involving `DeepSeekPOW` (e.g. with `APIError` and `AuthenticationError`) actually correct?",
+      "why": "`DeepSeekPOW` has 7 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 2 inferred relationships involving `CloudflareBypasser` (e.g. with `bypass_cloudflare()` and `CookieResponse`) actually correct?",
+      "why": "`CloudflareBypasser` has 2 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `Base exception for all DeepSeek API errors`, `Raised when authentication fails`, `Raised when API rate limit is exceeded` to the rest of the system?",
+      "why": "16 weakly-connected nodes found - possible documentation gaps or missing edges."
+    }
+  ]
+}

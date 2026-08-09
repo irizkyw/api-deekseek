@@ -1,0 +1,600 @@
+from curl_cffi import requests, CurlMime
+from typing import Optional, Dict, Any, Generator, Literal, List
+import json
+from .pow import DeepSeekPOW
+import pkg_resources
+import sys
+from pathlib import Path
+import subprocess
+import time
+
+ThinkingMode = Literal['detailed', 'simple', 'disabled']
+SearchMode = Literal['enabled', 'disabled']
+
+class DeepSeekError(Exception):
+    """Base exception for all DeepSeek API errors"""
+    pass
+
+class AuthenticationError(DeepSeekError):
+    """Raised when authentication fails"""
+    pass
+
+class RateLimitError(DeepSeekError):
+    """Raised when API rate limit is exceeded"""
+    pass
+
+class NetworkError(DeepSeekError):
+    """Raised when network communication fails"""
+    pass
+
+class CloudflareError(DeepSeekError):
+    """Raised when Cloudflare blocks the request"""
+    pass
+
+class APIError(DeepSeekError):
+    """Raised when API returns an error response"""
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message)
+        self.status_code = status_code
+
+class DeepSeekAPI:
+    BASE_URL = "https://chat.deepseek.com/api/v0"
+
+    def __init__(self, auth_token: str):
+        if not auth_token or not isinstance(auth_token, str):
+            raise AuthenticationError("Invalid auth token provided")
+
+        try:
+            curl_cffi_version = pkg_resources.get_distribution('curl-cffi').version
+            if curl_cffi_version != '0.7.4':
+                print("\033[93mWarning: DeepSeek API requires curl-cffi version 0.7.4", file=sys.stderr)
+                print("Please install the correct version using: pip install curl-cffi==0.7.4\033[0m", file=sys.stderr)
+        except pkg_resources.DistributionNotFound:
+            print("\033[93mWarning: curl-cffi not found. Please install version 0.7.4:", file=sys.stderr)
+            print("pip install curl-cffi==0.7.4\033[0m", file=sys.stderr)
+
+        self.auth_token = auth_token
+        self.pow_solver = DeepSeekPOW()
+
+        # Load cookies from JSON file
+        cookies_path = Path(__file__).parent / 'cookies.json'
+        self.user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36'
+        try:
+            with open(cookies_path, 'r') as f:
+                cookie_data = json.load(f)
+                self.cookies = cookie_data.get('cookies', {})
+                if cookie_data.get('user_agent'):
+                    self.user_agent = cookie_data['user_agent']
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"\033[93mWarning: Could not load cookies from {cookies_path}: {e}\033[0m", file=sys.stderr)
+            self.cookies = {}
+
+    def _get_headers(self, pow_response: Optional[str] = None) -> Dict[str, str]:
+        headers = {
+            'Accept': '*/*',
+            'Accept-Language': 'en,fr-FR;q=0.9,fr;q=0.8,es-ES;q=0.7,es;q=0.6,en-US;q=0.5,am;q=0.4,de;q=0.3',
+            'Authorization': f'Bearer {self.auth_token}',
+            'Content-Type': 'application/json',
+            'Origin': 'https://chat.deepseek.com',
+            'Referer': 'https://chat.deepseek.com/',
+            'User-Agent': self.user_agent,
+            'X-App-Version': '20241129.1',
+            'X-Client-Locale': 'en_US',
+            'X-Client-Platform': 'web',
+            'X-Client-Version': '1.0.0-always',
+        }
+
+        if pow_response:
+            headers['X-DS-POW-Response'] = pow_response
+
+        return headers
+
+    def _refresh_cookies(self) -> None:
+        """Run the cookie refresh script and reload cookies"""
+        try:
+            # Get path to refresh_cookies.py in scripts directory
+            script_path = Path(__file__).parent.parent / 'scripts' / 'refresh_cookies.py'
+            if not script_path.exists():
+                script_path = Path(__file__).parent / 'bypass.py'
+
+            # Run the script
+            subprocess.run([sys.executable, script_path], check=True)
+
+            # Wait briefly for cookies file to be written
+            time.sleep(2)
+
+            # Reload cookies
+            cookies_path = Path(__file__).parent / 'cookies.json'
+            with open(cookies_path, 'r') as f:
+                cookie_data = json.load(f)
+                self.cookies = cookie_data.get('cookies', {})
+                if cookie_data.get('user_agent'):
+                    self.user_agent = cookie_data['user_agent']
+
+        except Exception as e:
+            print(f"\033[93mWarning: Failed to refresh cookies: {e}\033[0m", file=sys.stderr)
+
+    def _make_request(self, method: str, endpoint: str, json_data: Dict[str, Any], pow_required: bool = False) -> Any:
+        url = f"{self.BASE_URL}{endpoint}"
+
+        retry_count = 0
+        max_retries = 2
+
+        while retry_count < max_retries:
+            try:
+                if pow_required:
+                    challenge = self._get_pow_challenge()
+                    pow_response = self.pow_solver.solve_challenge(challenge)
+                    headers = self._get_headers(pow_response)
+                else:
+                    headers = self._get_headers()
+
+                response = requests.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    json=json_data,
+                    cookies=self.cookies,
+                    impersonate='chrome120',
+                    timeout=None
+                )
+
+                # Check if we hit Cloudflare protection
+                if "<!DOCTYPE html>" in response.text and "Just a moment" in response.text:
+                    print("\033[93mWarning: Cloudflare protection detected. Bypassing...\033[0m", file=sys.stderr)
+                    if retry_count < max_retries - 1:
+                        self._refresh_cookies()
+                        time.sleep(1)
+                        retry_count += 1
+                        continue
+
+                # Handle other response codes
+                if response.status_code == 401:
+                    raise AuthenticationError("Invalid or expired authentication token")
+                elif response.status_code == 429:
+                    raise RateLimitError("API rate limit exceeded")
+                elif response.status_code >= 500:
+                    raise APIError(f"Server error occurred: {response.text}", response.status_code)
+                elif response.status_code != 200:
+                    raise APIError(f"API request failed: {response.text}", response.status_code)
+
+                return response.json()
+
+            except requests.exceptions.RequestException as e:
+                raise NetworkError(f"Network error occurred: {str(e)}")
+            except json.JSONDecodeError:
+                raise APIError("Invalid JSON response from server")
+
+        raise APIError("Failed to bypass Cloudflare protection after multiple attempts")
+
+    def _get_pow_challenge(self, target_path: str = '/api/v0/chat/completion') -> Dict[str, Any]:
+        try:
+            response = self._make_request(
+                'POST',
+                '/chat/create_pow_challenge',
+                {'target_path': target_path}
+            )
+            return response['data']['biz_data']['challenge']
+        except KeyError:
+            raise APIError("Invalid challenge response format from server")
+
+    def create_chat_session(self) -> str:
+        """Creates a new chat session and returns the session ID"""
+        try:
+            response = self._make_request(
+                'POST',
+                '/chat_session/create',
+                {'character_id': None}
+            )
+            return response['data']['biz_data']['id']
+        except KeyError:
+            raise APIError("Invalid session creation response format from server")
+
+    def get_chat_sessions(self, count: int = 50) -> List[Dict[str, Any]]:
+        """Fetch list of existing chat sessions (conversations) for sidebar display."""
+        try:
+            url = f"{self.BASE_URL}/chat_session/fetch_page"
+            headers = self._get_headers()
+            response = requests.get(
+                url,
+                headers=headers,
+                params={
+                    'page_size': count,
+                    'sort_field': 'updated_at',
+                    'sort_order': 'desc',
+                },
+                cookies=self.cookies,
+                impersonate='chrome120',
+                timeout=15,
+            )
+            if response.status_code != 200:
+                return []
+            data = response.json()
+            biz = (data.get('data') or {}).get('biz_data') or {}
+            return biz.get('chat_sessions') or []
+        except Exception:
+            return []
+
+    def get_chat_history(self, session_id: str) -> List[Dict[str, Any]]:
+        """Fetch message history for a chat session via /chat/history_messages."""
+        try:
+            url = f"{self.BASE_URL}/chat/history_messages"
+            headers = self._get_headers()
+            response = requests.get(
+                url,
+                headers=headers,
+                params={'chat_session_id': session_id},
+                cookies=self.cookies,
+                impersonate='chrome120',
+                timeout=15,
+            )
+            if response.status_code != 200:
+                return []
+            try:
+                data = response.json()
+            except Exception:
+                return []
+            biz = (data.get('data') or {}).get('biz_data') or {}
+            return biz.get('chat_messages') or []
+        except Exception:
+            return []
+
+    def chat_completion(self,
+                    chat_session_id: str,
+                    prompt: str,
+                    parent_message_id: Optional[str] = None,
+                    thinking_enabled: bool = True,
+                    search_enabled: bool = False,
+                    ref_file_ids: Optional[List[str]] = None) -> Generator[Dict[str, Any], None, None]:
+        """
+        Send a message and get streaming response
+
+        Args:
+            chat_session_id (str): The ID of the chat session
+            prompt (str): The message to send
+            parent_message_id (Optional[str]): ID of the parent message for threading
+            thinking_enabled (bool): Whether to show the thinking process
+            search_enabled (bool): Whether to enable web search for up-to-date information
+            ref_file_ids (Optional[List[str]]): List of file IDs uploaded to refer to
+
+        Returns:
+            Generator[Dict[str, Any], None, None]: Yields message chunks with content and type
+
+        Raises:
+            AuthenticationError: If the authentication token is invalid
+            RateLimitError: If the API rate limit is exceeded
+            NetworkError: If a network error occurs
+            APIError: If any other API error occurs
+        """
+        if not prompt or not isinstance(prompt, str):
+            raise ValueError("Prompt must be a non-empty string")
+        if not chat_session_id or not isinstance(chat_session_id, str):
+            raise ValueError("Chat session ID must be a non-empty string")
+
+        json_data = {
+            'chat_session_id': chat_session_id,
+            'parent_message_id': parent_message_id,
+            'prompt': prompt,
+            'ref_file_ids': ref_file_ids or [],
+            'thinking_enabled': thinking_enabled,
+            'search_enabled': search_enabled,
+        }
+
+        try:
+            headers = self._get_headers(
+                pow_response=self.pow_solver.solve_challenge(
+                    self._get_pow_challenge()
+                )
+            )
+
+            import os as _os2
+            _dbg2 = _os2.environ.get('DSK_DEBUG')
+            if _dbg2:
+                with open(_dbg2, 'a', encoding='utf-8') as _f:
+                    _f.write(f'\n=== CHAT REQUEST ===\n{json.dumps(json_data, indent=2)}\n===================\n')
+
+            response = requests.post(
+                f"{self.BASE_URL}/chat/completion",
+                headers=headers,
+                json=json_data,
+                cookies=self.cookies,
+                impersonate='chrome120',
+                stream=True,
+                timeout=None
+            )
+
+            if _dbg2:
+                with open(_dbg2, 'a', encoding='utf-8') as _f:
+                    _f.write(f'Response status: {response.status_code}\n')
+
+            if response.status_code != 200:
+                error_text = next(response.iter_lines(), b'').decode('utf-8', 'ignore')
+                if response.status_code == 401:
+                    raise AuthenticationError("Invalid or expired authentication token")
+                elif response.status_code == 429:
+                    raise RateLimitError("API rate limit exceeded")
+                else:
+                    raise APIError(f"API request failed: {error_text}", response.status_code)
+
+            import os as _os
+            _dbg = _os.environ.get('DSK_DEBUG')
+            _dbg_f = None
+            if _dbg:
+                try:
+                    _dbg_f = open(_dbg, 'a', encoding='utf-8')
+                except Exception:
+                    _dbg_f = None
+
+            try:
+                current_path = None
+                for chunk in response.iter_lines():
+                    if not chunk:
+                        continue
+                    try:
+                        if _dbg_f:
+                            _dbg_f.write(chunk.decode('utf-8', 'ignore') + '\n')
+                            _dbg_f.flush()
+
+                        if chunk.startswith(b'event: '):
+                            event_type = chunk[7:].decode('utf-8', 'ignore').strip()
+                            if event_type == 'close':
+                                break
+                        elif chunk.startswith(b'data: '):
+                            raw = chunk[6:].strip()
+                            if raw == b'[DONE]':
+                                break
+                            data_json = json.loads(raw)
+                            if not isinstance(data_json, dict):
+                                continue
+
+                            if 'response_message_id' in data_json:
+                                yield {
+                                    'type': 'ready',
+                                    'response_message_id': data_json['response_message_id']
+                                }
+                                continue
+
+                            if 'choices' in data_json and data_json['choices']:
+                                choice = data_json['choices'][0]
+                                if 'delta' in choice:
+                                    delta = choice['delta']
+                                    content = delta.get('content', '')
+                                    dtype = delta.get('type', '')
+                                    if content:
+                                        yield {
+                                            'content': content,
+                                            'type': dtype or 'text',
+                                            'finish_reason': choice.get('finish_reason')
+                                        }
+                                    if choice.get('finish_reason') == 'stop':
+                                        break
+                                continue
+
+                            if 'op' in data_json and 'path' in data_json:
+                                op = data_json.get('op', '')
+                                path = data_json.get('path', '')
+                                value = data_json.get('value', '')
+                                if op in ('replace', 'add') and isinstance(value, str) and value:
+                                    if 'thinking_content' in path:
+                                        yield {'type': 'thinking', 'content': value}
+                                    elif 'content' in path:
+                                        yield {'type': 'text', 'content': value}
+                                continue
+
+                            if 'p' in data_json:
+                                current_path = data_json['p']
+                            if 'v' in data_json:
+                                v = data_json['v']
+                                norm_path = current_path.lstrip('/') if current_path else ''
+                                if isinstance(v, str) and v:
+                                    if norm_path == 'response/thinking_content':
+                                        yield {'type': 'thinking', 'content': v}
+                                    elif norm_path == 'response/content':
+                                        yield {'type': 'text', 'content': v}
+                                elif isinstance(v, list) and norm_path == 'response/search_results':
+                                    sources = [
+                                        {'title': s.get('title', ''), 'url': s.get('url', '')}
+                                        for s in v if isinstance(s, dict)
+                                    ]
+                                    if sources:
+                                        yield {'type': 'sources', 'sources': sources}
+                                elif isinstance(v, dict):
+                                    resp_obj = v.get('response') or {}
+                                    sr = resp_obj.get('search_results')
+                                    if sr and isinstance(sr, list):
+                                        sources = [
+                                            {'title': s.get('title', ''), 'url': s.get('url', '')}
+                                            for s in sr if isinstance(s, dict)
+                                        ]
+                                        if sources:
+                                            yield {'type': 'sources', 'sources': sources}
+                            elif isinstance(data_json.get('v'), list):
+                                for item in data_json['v']:
+                                    if isinstance(item, dict):
+                                        op = item.get('op', '')
+                                        path = item.get('path', '')
+                                        val = item.get('value', '')
+                                        if isinstance(val, str) and val:
+                                            if 'thinking_content' in path:
+                                                yield {'type': 'thinking', 'content': val}
+                                            elif 'content' in path:
+                                                yield {'type': 'text', 'content': val}
+
+                    except json.JSONDecodeError:
+                        continue
+                    except Exception as e:
+                        if _dbg_f:
+                            import traceback as _tb
+                            _dbg_f.write(f'ERROR: {e}\n{_tb.format_exc()}\n')
+                            _dbg_f.flush()
+                        raise APIError(f"Error parsing response chunk: {str(e)}")
+            finally:
+                if _dbg_f:
+                    _dbg_f.close()
+
+        except requests.exceptions.RequestException as e:
+            raise NetworkError(f"Network error occurred during streaming: {str(e)}")
+
+    def _parse_chunk(self, chunk: bytes) -> Optional[Dict[str, Any]]:
+        """Legacy parse method (partially compatible stateless parser)"""
+        if not chunk:
+            return None
+        try:
+            if chunk.startswith(b'data: '):
+                data = json.loads(chunk[6:])
+                if 'choices' in data and data['choices']:
+                    choice = data['choices'][0]
+                    if 'delta' in choice:
+                        delta = choice['delta']
+                        return {
+                            'content': delta.get('content', ''),
+                            'type': delta.get('type', ''),
+                            'finish_reason': choice.get('finish_reason')
+                        }
+        except Exception:
+            pass
+        return None
+
+    def upload_file(self, file_path: str) -> str:
+        """
+        Uploads a file (document or image) to DeepSeek's servers.
+        Returns the file ID.
+        """
+        url = f"{self.BASE_URL}/file/upload_file"
+        
+        challenge = self._get_pow_challenge(target_path='/api/v0/file/upload_file')
+        pow_response = self.pow_solver.solve_challenge(challenge)
+        headers = self._get_headers(pow_response)
+        
+        headers.pop('content-type', None)
+        headers.pop('Content-Type', None)
+
+        p = Path(file_path)
+        if not p.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        suffix = p.suffix.lower()
+        if suffix in ['.jpg', '.jpeg']:
+            content_type = 'image/jpeg'
+        elif suffix == '.png':
+            content_type = 'image/png'
+        elif suffix == '.gif':
+            content_type = 'image/gif'
+        elif suffix == '.pdf':
+            content_type = 'application/pdf'
+        elif suffix == '.txt':
+            content_type = 'text/plain'
+        else:
+            content_type = 'application/octet-stream'
+
+        mp = CurlMime()
+        mp.addpart(
+            name="file",
+            content_type=content_type,
+            filename=p.name,
+            local_path=str(p.resolve())
+        )
+
+        response = requests.post(
+            url,
+            headers=headers,
+            multipart=mp,
+            cookies=self.cookies,
+            impersonate='chrome120'
+        )
+
+        if response.status_code != 200:
+            raise APIError(f"File upload failed: {response.text}", response.status_code)
+
+        try:
+            data = response.json()
+            if data.get('code') != 0:
+                raise APIError(f"Upload failed: {data.get('msg', 'Unknown API error')}", data.get('code'))
+            biz = (data.get('data') or {}).get('biz_data') or {}
+            file_id = biz.get('id') or data.get('data', {}).get('id')
+            if not file_id:
+                raise APIError(f"No file_id in upload response: {response.text}")
+        except (KeyError, TypeError, ValueError) as e:
+            raise APIError(f"Invalid upload response format: {response.text}") from e
+
+        if content_type.startswith('image/'):
+            self.fork_file_task(file_id)
+            if not self._wait_until_file_ready(file_id):
+                print(f"\033[93mWarning: Image file {file_id} may not be ready for use\033[0m", file=sys.stderr)
+
+        return file_id
+
+    def fork_file_task(self, file_id: str) -> bool:
+        """
+        Forks the uploaded file task to make it available for the vision model.
+        Returns True on success, False on failure (non-fatal).
+        """
+        try:
+            url = f"{self.BASE_URL}/file/fork_file_task"
+            challenge = self._get_pow_challenge(target_path='/api/v0/file/fork_file_task')
+            pow_response = self.pow_solver.solve_challenge(challenge)
+            headers = self._get_headers(pow_response)
+
+            response = requests.post(
+                url,
+                headers=headers,
+                json={"file_id": file_id},
+                cookies=self.cookies,
+                impersonate='chrome120'
+            )
+            if response.status_code != 200:
+                return False
+            return True
+        except Exception:
+            return False
+
+    def _wait_until_file_ready(self, file_id: str, timeout: int = 60) -> bool:
+        """
+        Poll fetch_files until the file status is no longer PARSING or PENDING.
+        Returns True when ready, False on timeout.
+        """
+        import time
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                meta = self.fetch_files([file_id])
+                files = (
+                    meta.get('data', {})
+                        .get('biz_data', {})
+                        .get('files', [])
+                )
+                if files:
+                    status = files[0].get('status', '')
+                    if status not in ('PENDING', 'PARSING', ''):
+                        return status not in ('ERROR', 'FAILED')
+            except Exception:
+                pass
+            time.sleep(1.5)
+        return False
+
+    def fetch_files(self, file_ids: List[str]) -> Dict[str, Any]:
+        """
+        Fetches file metadata — mirrors the browser's GET /file/fetch_files call
+        made right after upload to activate files for the vision model.
+        Returns the response data dict (non-fatal on failure).
+        """
+        try:
+            ids_param = ','.join(file_ids)
+            url = f"{self.BASE_URL}/file/fetch_files"
+            headers = self._get_headers()
+            response = requests.get(
+                url,
+                headers=headers,
+                params={'file_ids': ids_param},
+                cookies=self.cookies,
+                impersonate='chrome120',
+                timeout=15,
+            )
+            if response.status_code == 200:
+                try:
+                    return response.json()
+                except json.JSONDecodeError:
+                    pass
+        except Exception:
+            pass
+        return {}

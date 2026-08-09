@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DeepSeek Chat with Math</title>
+    <!-- KaTeX CSS & JS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous" />
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(145deg, #f5f7fa 0%, #e9edf5 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .chat-container {
+            max-width: 900px;
+            width: 100%;
+            height: 90vh;
+            background: rgba(255, 255, 255, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 40px;
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.15), 0 10px 20px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .chat-header {
+            padding: 20px 28px;
+            background: rgba(255, 255, 255, 0.5);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .chat-header h1 {
+            font-size: 1.4rem;
+            font-weight: 600;
+            color: #1a1a2e;
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .chat-header h1 small {
+            font-size: 0.8rem;
+            font-weight: 400;
+            color: #4a4a6a;
+            background: rgba(0, 0, 0, 0.04);
+            padding: 2px 12px;
+            border-radius: 100px;
+        }
+
+        .header-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .toggle-btn {
+            background: rgba(255, 255, 255, 0.6);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            padding: 6px 16px;
+            border-radius: 100px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: #1a1a2e;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.9);
+            border-color: rgba(0, 0, 0, 0.15);
+        }
+
+        .toggle-btn.active {
+            background: #1a1a2e;
+            color: white;
+            border-color: #1a1a2e;
+        }
+
+        .toggle-btn .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ccc;
+            transition: background 0.2s;
+        }
+
+        .toggle-btn.active .status-dot {
+            background: #4ade80;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px 28px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            scroll-behavior: smooth;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-messages::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 10px;
+        }
+
+        .message {
+            max-width: 85%;
+            padding: 14px 20px;
+            border-radius: 24px;
+            animation: fadeIn 0.3s ease;
+            line-height: 1.6;
+            word-wrap: break-word;
+            position: relative;
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: #1a1a2e;
+            color: white;
+            border-bottom-right-radius: 6px;
+        }
+
+        .message.assistant {
+            align-self: flex-start;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            color: #1a1a2e;
+            border-bottom-left-radius: 6px;
+        }
+
+        .message.assistant .message-label {
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #4a4a6a;
+            margin-bottom: 4px;
+            opacity: 0.7;
+        }
+
+        .message.assistant .message-label.thinking-label {
+            color: #8b5cf6;
+        }
+
+        .message .katex-display {
+            margin: 0.5em 0;
+        }
+
+        .message .katex {
+            font-size: 1.1em;
+        }
+
+        .message .inline-math {
+            background: rgba(0, 0, 0, 0.04);
+            padding: 0 4px;
+            border-radius: 4px;
+        }
+
+        .typing-indicator {
+            align-self: flex-start;
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(4px);
+            padding: 12px 18px;
+            border-radius: 24px;
+            border-bottom-left-radius: 6px;
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            font-size: 0.9rem;
+            color: #4a4a6a;
+        }
+
+        .typing-indicator .dots span {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background: #4a4a6a;
+            border-radius: 50%;
+            margin: 0 2px;
+            animation: bounce 1.4s infinite both;
+        }
+
+        .typing-indicator .dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-indicator .dots span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+            40% { transform: scale(1); opacity: 1; }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .chat-input-area {
+            padding: 16px 28px 24px;
+            border-top: 1px solid rgba(0, 0, 0, 0.04);
+            background: rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(4px);
+        }
+
+        .chat-input-wrapper {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 40px;
+            padding: 6px 6px 6px 20px;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            transition: border 0.2s;
+        }
+
+        .chat-input-wrapper:focus-within {
+            border-color: rgba(26, 26, 46, 0.2);
+            box-shadow: 0 0 0 3px rgba(26, 26, 46, 0.05);
+        }
+
+        .chat-input-wrapper textarea {
+            flex: 1;
+            border: none;
+            background: transparent;
+            padding: 12px 0;
+            font-size: 0.95rem;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            line-height: 1.5;
+            max-height: 150px;
+            color: #1a1a2e;
+        }
+
+        .chat-input-wrapper textarea::placeholder {
+            color: #8a8aa0;
+        }
+
+        .chat-input-wrapper button {
+            background: #1a1a2e;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 40px;
+            font-weight: 500;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .chat-input-wrapper button:hover {
+            background: #2d2d4e;
+            transform: scale(1.02);
+        }
+
+        .chat-input-wrapper button:active {
+            transform: scale(0.97);
+        }
+
+        .chat-input-wrapper button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .chat-container {
+                height: 95vh;
+                border-radius: 24px;
+            }
+            .chat-header {
+                padding: 14px 18px;
+            }
+            .chat-header h1 {
+                font-size: 1.1rem;
+            }
+            .chat-messages {
+                padding: 16px 14px;
+            }
+            .message {
+                max-width: 95%;
+                padding: 12px 16px;
+            }
+            .chat-input-area {
+                padding: 12px 14px 16px;
+            }
+            .chat-input-wrapper {
+                padding: 4px 4px 4px 14px;
+            }
+            .chat-input-wrapper textarea {
+                font-size: 0.9rem;
+            }
+            .chat-input-wrapper button {
+                padding: 8px 14px;
+                font-size: 0.8rem;
+            }
+        }
+
+        /* error message styling */
+        .message.error {
+            align-self: center;
+            background: #fee2e2;
+            color: #b91c1c;
+            border: 1px solid #fecaca;
+            border-radius: 16px;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        /* scrollable math block fix */
+        .message .katex-display > .katex {
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 4px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container" id="app">
+        <div class="chat-header">
+            <h1>
+                ✦ DeepSeek
+                <small>with Math</small>
+            </h1>
+            <div class="header-controls">
+                <button class="toggle-btn active" id="thinkingToggle">
+                    <span class="status-dot"></span> Thinking
+                </button>
+                <button class="toggle-btn" id="searchToggle">
+                    <span class="status-dot"></span> Search
+                </button>
+            </div>
+        </div>
+        <div class="chat-messages" id="messagesContainer">
+            <!-- Messages will be inserted here -->
+            <div class="message assistant">
+                <div class="message-label">Assistant</div>
+                Hello! I'm DeepSeek. Ask me anything, and I can render mathematical formulas using LaTeX. For example: \(E = mc^2\) or $$\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$$
+            </div>
+        </div>
+        <div class="chat-input-area">
+            <div class="chat-input-wrapper">
+                <textarea id="promptInput" rows="1" placeholder="Ask a question... (Shift+Enter for new line)"></textarea>
+                <button id="sendBtn">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ---- state ----
+        let thinkingEnabled = true;
+        let searchEnabled = false;
+        let isProcessing = false;
+        let currentAssistantMessage = null;
+        let currentThinkingDiv = null;
+        let streamBuffer = '';
+
+        const messagesContainer = document.getElementById('messagesContainer');
+        const promptInput = document.getElementById('promptInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const thinkingToggle = document.getElementById('thinkingToggle');
+        const searchToggle = document.getElementById('searchToggle');
+
+        // ---- toggle handlers ----
+        thinkingToggle.addEventListener('click', () => {
+            thinkingEnabled = !thinkingEnabled;
+            thinkingToggle.classList.toggle('active', thinkingEnabled);
+        });
+
+        searchToggle.addEventListener('click', () => {
+            searchEnabled = !searchEnabled;
+            searchToggle.classList.toggle('active', searchEnabled);
+        });
+
+        // ---- render math using KaTeX ----
+        function renderMathInElement(element) {
+            if (window.renderMathInElement) {
+                try {
+                    window.renderMathInElement(element, {
+                        delimiters: [
+                            { left: '$$', right: '$$', display: true },
+                            { left: '\\[', right: '\\]', display: true },
+                            { left: '\(', right: '\)', display: false },
+                            { left: '\\$', right: '\\$', display: false },
+                        ],
+                        throwOnError: false
+                    });
+                } catch (e) {
+                    // ignore rendering errors
+                }
+            }
+        }
+
+        // ---- create message element ----
+        function createMessage(content, type, label = null) {
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            if (type === 'assistant' && label) {
+                const labelDiv = document.createElement('div');
+                labelDiv.className = `message-label ${label.includes('Thinking') ? 'thinking-label' : ''}`;
+                labelDiv.textContent = label;
+                div.appendChild(labelDiv);
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                contentDiv.innerHTML = content;
+                div.appendChild(contentDiv);
+            } else {
+                div.innerHTML = content;
+            }
+            return div;
+        }
+
+        function appendMessage(content, type, label = null) {
+            const div = createMessage(content, type, label);
+            messagesContainer.appendChild(div);
+            // render math
+            renderMathInElement(div);
+            scrollToBottom();
+            return div;
+        }
+
+        function updateMessageElement(element, content, label = null) {
+            // If label provided, update label and content separately
+            if (label !== undefined && label !== null) {
+                const labelDiv = element.querySelector('.message-label');
+                if (labelDiv) {
+                    labelDiv.textContent = label;
+                }
+                const contentDiv = element.querySelector('.message-content');
+                if (contentDiv) {
+                    contentDiv.innerHTML = content;
+                    renderMathInElement(contentDiv);
+                }
+            } else {
+                // If no label, just update innerHTML (for user messages)
+                element.innerHTML = content;
+                renderMathInElement(element);
+            }
+        }
+
+        function scrollToBottom() {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // ---- show typing indicator ----
+        let typingIndicator = null;
+        function showTyping() {
+            if (typingIndicator) return;
+            const div = document.createElement('div');
+            div.className = 'typing-indicator';
+            div.id = 'typingIndicator';
+            div.innerHTML = `<span>DeepSeek is thinking</span><span class="dots"><span></span><span></span><span></span></span>`;
+            messagesContainer.appendChild(div);
+            scrollToBottom();
+            typingIndicator = div;
+        }
+
+        function hideTyping() {
+            if (typingIndicator) {
+                typingIndicator.remove();
+                typingIndicator = null;
+            }
+        }
+
+        // ---- send message ----
+        async function sendMessage() {
+            const prompt = promptInput.value.trim();
+            if (!prompt || isProcessing) return;
+
+            // Disable input
+            isProcessing = true;
+            sendBtn.disabled = true;
+            promptInput.disabled = true;
+
+            // Append user message
+            appendMessage(escapeHtml(prompt), 'user');
+            promptInput.value = '';
+            promptInput.style.height = 'auto';
+
+            // Show typing indicator
+            showTyping();
+
+            // Prepare for streaming
+            let assistantContent = '';
+            let thinkingContent = '';
+            let currentType = 'text'; // 'thinking' or 'text'
+            let assistantMessageElement = null;
+            let thinkingMessageElement = null;
+            let isFirstChunk = true;
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        thinking_enabled: thinkingEnabled,
+                        search_enabled: searchEnabled
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Server error: ${response.status} ${errorText}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buffer = '';
+
+                // Hide typing indicator once we start getting data
+                hideTyping();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6).trim();
+                            if (data === '[DONE]') {
+                                // Finalize
+                                if (assistantMessageElement) {
+                                    // render math one more time
+                                    renderMathInElement(assistantMessageElement);
+                                }
+                                if (thinkingMessageElement) {
+                                    renderMathInElement(thinkingMessageElement);
+                                }
+                                isProcessing = false;
+                                sendBtn.disabled = false;
+                                promptInput.disabled = false;
+                                promptInput.focus();
+                                return;
+                            }
+
+                            try {
+                                const chunk = JSON.parse(data);
+                                if (chunk.type === 'error') {
+                                    // Show error message
+                                    hideTyping();
+                                    appendMessage(`❌ ${escapeHtml(chunk.content)}`, 'error');
+                                    isProcessing = false;
+                                    sendBtn.disabled = false;
+                                    promptInput.disabled = false;
+                                    promptInput.focus();
+                                    return;
+                                }
+
+                                if (chunk.type === 'thinking') {
+                                    // If we haven't created thinking element, create it
+                                    if (!thinkingMessageElement) {
+                                        // If assistant message already exists, create thinking as separate
+                                        thinkingMessageElement = createMessage('', 'assistant', 'Thinking...');
+                                        // Insert before assistant message if exists, else append
+                                        if (assistantMessageElement) {
+                                            messagesContainer.insertBefore(thinkingMessageElement, assistantMessageElement);
+                                        } else {
+                                            messagesContainer.appendChild(thinkingMessageElement);
+                                        }
+                                        thinkingContent = '';
+                                    }
+                                    thinkingContent += chunk.content;
+                                    // Update thinking element
+                                    const label = 'Thinking';
+                                    const contentDiv = thinkingMessageElement.querySelector('.message-content');
+                                    if (contentDiv) {
+                                        contentDiv.innerHTML = escapeHtml(thinkingContent);
+                                        renderMathInElement(contentDiv);
+                                    }
+                                    scrollToBottom();
+                                } else if (chunk.type === 'text') {
+                                    // If we haven't created assistant message, create it
+                                    if (!assistantMessageElement) {
+                                        assistantMessageElement = createMessage('', 'assistant', 'Assistant');
+                                        messagesContainer.appendChild(assistantMessageElement);
+                                        assistantContent = '';
+                                    }
+                                    assistantContent += chunk.content;
+                                    // Update assistant content
+                                    const contentDiv = assistantMessageElement.querySelector('.message-content');
+                                    if (contentDiv) {
+                                        contentDiv.innerHTML = escapeHtml(assistantContent);
+                                        renderMathInElement(contentDiv);
+                                    }
+                                    scrollToBottom();
+                                }
+                            } catch (e) {
+                                console.warn('Failed to parse chunk:', data, e);
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                hideTyping();
+                appendMessage(`❌ Error: ${escapeHtml(error.message)}`, 'error');
+                isProcessing = false;
+                sendBtn.disabled = false;
+                promptInput.disabled = false;
+                promptInput.focus();
+            }
+        }
+
+        // ---- helper: escape HTML to prevent injection ----
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ---- event listeners ----
+        sendBtn.addEventListener('click', sendMessage);
+
+        promptInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Auto-resize textarea
+        promptInput.addEventListener('input', () => {
+            promptInput.style.height = 'auto';
+            promptInput.style.height = promptInput.scrollHeight + 'px';
+        });
+
+        // ---- initial render for existing messages ----
+        document.addEventListener('DOMContentLoaded', () => {
+            renderMathInElement(messagesContainer);
+        });
+
+        // Also re-render when window resizes (for responsiveness)
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                renderMathInElement(messagesContainer);
+            }, 200);
+        });
+    </script>
+</body>
+</html>
