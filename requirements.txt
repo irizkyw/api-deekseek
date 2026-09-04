@@ -3,7 +3,7 @@ wasmtime
 numpy
 nodriver
 drissionpage
-mcp
+mcp<2
 python-dotenv
 setuptools<70
 fastapi

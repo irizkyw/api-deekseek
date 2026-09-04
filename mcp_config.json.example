@@ -1,5 +1,13 @@
 {
   "mcpServers": {
+    "hexstrike-ai": {
+      "command": "python",
+      "args": [
+        "mcp/hexstrike_mcp.py",
+        "--server",
+        "http://51.222.42.163:12001"
+      ]
+    },
     "filesystem": {
       "command": "bunx",
       "args": [

@@ -11,8 +11,9 @@ from pathlib import Path
 from typing import Optional, List
 from dotenv import load_dotenv
 
-# Add current directory to Python path
+# Add current directory and project root to Python path
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from mcp.server.fastmcp import FastMCP
 from deepseek_api import DeepSeekAPI, AuthenticationError, RateLimitError, NetworkError, APIError
@@ -22,7 +23,6 @@ load_dotenv()
 # Initialize FastMCP server
 mcp = FastMCP(
     "DeepSeek Free",
-    version="1.0.0",
     dependencies=["mcp", "curl_cffi", "wasmtime", "numpy", "dotenv"]
 )
 

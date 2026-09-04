@@ -71,7 +71,15 @@ class MCPManager:
                 continue
 
             command = cfg.get("command")
-            args = list(cfg.get("args", []))
+            if command in ("python", "python3") and sys.executable:
+                command = sys.executable
+
+            args = []
+            for arg in cfg.get("args", []):
+                if isinstance(arg, str) and (arg.endswith(".py") or arg.endswith(".js")) and os.path.exists(arg):
+                    args.append(os.path.abspath(arg))
+                else:
+                    args.append(arg)
             
             # If it is the filesystem server, dynamically add current project directory
             if name == "filesystem":

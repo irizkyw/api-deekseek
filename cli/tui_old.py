@@ -561,7 +561,22 @@ class ChatInput(Input):
                 app = self.app
                 if isinstance(app, DeepSeekApp):
                     app.paste_clipboard()
-                return
+        # If multi-line text is pasted, Textual's default Input._on_paste discards
+        # everything after the first line (line = event.text.splitlines()[0]).
+        # Instead, attach the full multi-line text cleanly as an attached context file!
+        if event.text and "\n" in event.text.strip():
+            event.stop()
+            event.prevent_default()
+            app = self.app
+            if isinstance(app, DeepSeekApp):
+                lines = event.text.strip().splitlines()
+                app.attached_files.append(("pasted_text.txt", event.text.strip()))
+                app.sync_status()
+                log = app.query_one("#chat-log", RichLog)
+                log.write(f"[green]📎 Attached multi-line text[/green] ({len(event.text)} chars, {len(lines)} lines)")
+                log.write("[dim]Teks panjang berhasil dilampirkan. Anda bisa ketik perintah lalu Enter (atau langsung tekan Enter).[/dim]")
+            return
+
         super()._on_paste(event)
 
 
@@ -1037,7 +1052,10 @@ class DeepSeekApp(App):
         text = event.value.strip()
         event.input.value = ""
         if not text:
-            return
+            if self.attached_files or self.attached_images:
+                text = "Tolong analisis dan proses konten yang terlampir di atas."
+            else:
+                return
         self.handle_command(text)
 
     def handle_command(self, user_input: str) -> None:
