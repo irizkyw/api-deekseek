@@ -1,0 +1,15 @@
+{
+  "execution_time": 62.023117542266846,
+  "partial_results": false,
+  "recovery_info": {
+    "attempts_made": 1,
+    "recovery_applied": false,
+    "recovery_history": []
+  },
+  "return_code": 0,
+  "stderr": "\n                     __     _\n   ____  __  _______/ /__  (_)\n  / __ \\/ / / / ___/ / _ \\/ /\n / / / / /_/ / /__/ /  __/ /\n/_/ /_/\\__,_/\\___/_/\\___/_/   v3.11.1\n\n\t\tprojectdiscovery.io\n\n[\u001b[34mINF\u001b[0m] Current nuclei version: v3.11.1 (\u001b[92mlatest\u001b[0m)\n[\u001b[34mINF\u001b[0m] Current nuclei-templates version: v10.4.8 (\u001b[92mlatest\u001b[0m)\n[\u001b[34mINF\u001b[0m] New templates added in latest release: 112\n[\u001b[34mINF\u001b[0m] Templates loaded for current scan: 1554\n[\u001b[34mINF\u001b[0m] Executing 1554 signed templates from projectdiscovery/nuclei-templates\n[\u001b[34mINF\u001b[0m] Targets loaded for current scan: 1\n[\u001b[34mINF\u001b[0m] Templates clustered: 220 (Reduced 188 Requests)\n[\u001b[34mINF\u001b[0m] Using Interactsh Server: oast.site\n[\u001b[34mINF\u001b[0m] Skipped geolocsys.azuba.tech:443 from target list as found unresponsive 30 times\n[\u001b[34mINF\u001b[0m] Skipped geolocsys.azuba.tech:443 from target list as found unresponsive permanently: cause=\"i/o timeout\" address=geolocsys.azuba.tech:443 chain=\"got err while executing https://geolocsys.azuba.tech/oauth/idp/.well-known/openid-configuration\"\n[\u001b[34mINF\u001b[0m] Skipped geolocsys.azuba.tech:443 from target list as found unresponsive permanently: DELETE https://geolocsys.azuba.tech/actuator/gateway/routes/3IrL0mNKj2dgC9qALIRXfNnvT9M giving up after 2 attempts: Delete \"https://geolocsys.azuba.tech/actuator/gateway/routes/3IrL0mNKj2dgC9qALIRXfNnvT9M\": net/http: request canceled while waiting for connection (Client.Timeout exceeded while awaiting headers)\n[\u001b[34mINF\u001b[0m] Skipped geolocsys.azuba.tech:443 from target list as found unresponsive 32 times\n[\u001b[34mINF\u001b[0m] Scan completed in 1m. 0 matches found.\n[\u001b[34mINF\u001b[0m] HTTP connections: 88 total, 35 new, 53 reused (60.2%)\n",
+  "stdout": "",
+  "success": true,
+  "timed_out": false,
+  "timestamp": "2026-09-04T10:26:21.211670"
+}

@@ -1,0 +1,121 @@
+MakeMyTrip Pvt Ltd - Bug Bounty Program [Chatbot]
+Being India's leading website for hotel, flight, and holiday bookings, MakeMyTrip helps you book flight tickets that are affordable and customized to your ...
+Last update on 2026-04-30
+Program history
+Reward
+Bounty
+Hall of fame
+$100
+Low
+$100
+Medium
+$300
+High
+$500
+Critical
+$1,000
+Program
+Avg reward
+-
+Max reward
+-
+Scopes
+4
+Supported languages
+English
+Hacktivity
+Reports
+46
+1st response
+< 1 day
+Reports last 24h
+1
+Reports last week
+5
+Reports this month
+16
+Program description
+Program activity
+Welcome to MakeMyTrip Private Bug Bounty Program
+MakeMyTrip, a leading company since 2000, is dedicated to providing exceptional services to our customers. We value your help in ensuring the security of our platform. If you discover a security vulnerability, please report it responsibly. We treat all reports with urgency and commit to resolving issues promptly. As a token of appreciation, we offer monetary rewards based on the impact of the vulnerability. Before reporting, please review our disclosure policy and reward guidelines. Join us in creating a secure online experience.
+Scopes description
+MakeMyTrip
+Myra Chatbot on https://www.makemytrip.com/
+Myra Chatbot can be accessed by navigating to https://www.makemytrip.com/, and the Myra Chatbot can be found at the bottom right of the page.
+Special attention for AI Testing
+For AI related features, we are interested in finding the below type of vulnerabilities:
+Social engineering of the AI by disclosing other people's PII or confidential information
+Providing incorrect or invalid discount price
+Categorisation of vulnerabilities will be in the sole discretion of MakeMyTrip.
+Program Rules
+Note regarding AI vulnerabilities
+Please ensure that you indicate your conversation ID and complete chat conversations when submitting a report. This is so that we can trace the chat history for re-validation purposes.
+XSS during any conversation with our chatbot is capped as a low severity issue as we consider this to be a Self-XSS. If it is been exploited while calling up other APIs, then it would be considered as XSS and evaluated on the impact.
+Specific in scope vulnerabilities for AI scope
+In addition to the usual vulnerabilities we're also looking for any flaw that might lead to exploits specific to AI models, i.e. :
+Influencing and changing the AI model in ways that impact other users
+Ability to perturb valid inputs such that the model produces incorrect outputs for other users
+Circumventing history protections and history deletion mechanisms to access other users' history
+Accessing/revealing the AI model's internal workings and prompts, decision making processes and confidential information
+Ability to poison the AI model or its data by tampering with its architecture, training code/data or hyperparameters
+Out of scope vulnerabilities for AI scope
+In the framework of this program, we're not interested in behaviors that do not pose a direct security concern or that could be considered as an output quality/accuracy issue, i.e. :
+AI Command/Prompt Injection attacks that only affect the attacker or generate content that is shown only to the attacker
+Model Hallucination attacks, e.g. AI model disclosing falsely confidential data or pretending to run code provided by an attacker
+Outputs that could be considered as safety issues, that seem inaccurate or offensive
+Testing Policy, Responsible Disclosure
+Please adhere to the following rules while performing research on this program:
+Denial of service (DoS) attacks on our applications, servers, networks or infrastructure are strictly forbidden.
+Avoid tests that could cause degradation or interruption of our services.
+Do not use automated scanners or tools that generate large amount of network traffic
+Do not leak, copy, manipulate, or destroy any user data or files in any of our applications/servers.
+No vulnerability disclosure, full, partial or otherwise, is allowed.
+Make sure to apply hunting requirements policy (User-Agent, VPN...)
+Important precautions and limitations
+As a complement to the Program’s rules and testing policy :
+DO NOT alter compromised accounts by creating, deleting or modifying any data
+DO NOT use compromised accounts to search for post-auth vulnerabilities (they won’t be eligible anyway)
+DO NOT include Personally Identifiable Information (PII) in your report and please REDACT/OBFUSCATE the PII that is part of your PoC (screenshot, server response, JSON file, etc.) as much as possible.
+In case of exposed credentials or secrets, limit yourself to verifying the credentials validity
+In case of sensitive information leak, DO NOT extract/copy every document or data that is exposed and limit yourself to describe and list what is exposed.
+Reward Eligibility
+We are happy to thank everyone who submits valid reports which help us improve our security, however only those that meet the following eligibility requirements may receive a monetary reward:
+You must be the first reporter of a vulnerability.
+The vulnerability must be a qualifying vulnerability
+The report must contain the following elements:
+Clear textual description of the vulnerability, how it can be exploited, the security impact it has on the application, its users and our company, and remediation advice on fixing the vulnerability
+Proof of exploitation: screenshots demonstrating the exploit was performed, and showing the final impact
+Provide complete steps with the necessary information to reproduce the exploit, including (if necessary) code snippets, payloads, commands etc
+You must not break any of the testing policy rules listed above
+You must not be a former or current employee nor one of our contractors.
+Reward amounts are based on:
+Reward grid of the report's scope
+CVSS scoring and actual business impact of the vulnerability upon performing risk analysis
+All reports must include screenshots, video(s), logs and evidence, that show the full exploitation on your end. Providing us with a script to run ourselves will be deemed insufficient. Reports that fail to present required evidence, will likely be rejected.
+Reward
+Asset value	CVSS Low	CVSS Medium	CVSS High	CVSS Critical
+High	$100	$300	$500	$1,000
+Systemic issues
+1st report100%
+2nd report100%
+3rd report75%
+4th report50%
+5th report25%
+6th+ report10%
+Scopes
+[www.makemytrip.com/myra-v1/*](https://www.makemytrip.com/myra-v1/*) - AI Model
+travelbot.makemytrip.com/* - AI Model
+https://myra-cb.makemytrip.com/platform-mmt-ai-cb/* - AI Model
+https://www.makemytrip.com/myra/* - AI Model
+
+Out of scopes
+All domains or subdomains not listed in-scope.
+ilearn.makemytrip.com
+planner.makemytrip.com
+homestayawards.makemytrip.com
+Complete Connect Application formerly known as Ingo
+
+Hunting requirements
+Account access: Self-register from https://www.makemytrip.com.
+Add custom request header in format: [YesWeHack : HunterName]
+User agent: Please append to your user-agent header the following value: ' No User-Agent is required instead add request header as mentioned in above section '.

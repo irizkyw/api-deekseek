@@ -1,0 +1,10 @@
+{
+  "execution_time": 0.006646394729614258,
+  "partial_results": false,
+  "return_code": 2,
+  "stderr": "ls: cannot access '/usr/share/wordlists/dirbuster/': No such file or directory\n",
+  "stdout": "",
+  "success": false,
+  "timed_out": false,
+  "timestamp": "2026-09-04T09:17:08.696671"
+}

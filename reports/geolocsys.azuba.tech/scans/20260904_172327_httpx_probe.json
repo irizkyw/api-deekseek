@@ -1,0 +1,10 @@
+{
+  "execution_time": 0.11466741561889648,
+  "partial_results": false,
+  "return_code": 2,
+  "stderr": "Usage: httpx [OPTIONS] URL\n\nError: No such option '-l'.\n",
+  "stdout": "",
+  "success": false,
+  "timed_out": false,
+  "timestamp": "2026-09-04T10:23:26.966608"
+}

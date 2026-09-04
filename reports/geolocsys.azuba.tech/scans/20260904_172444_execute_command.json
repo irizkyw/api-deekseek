@@ -1,0 +1,10 @@
+{
+  "execution_time": 0.004817008972167969,
+  "partial_results": false,
+  "return_code": 0,
+  "stderr": "",
+  "stdout": "/usr/bin/ffuf\n",
+  "success": true,
+  "timed_out": false,
+  "timestamp": "2026-09-04T10:24:44.124498"
+}

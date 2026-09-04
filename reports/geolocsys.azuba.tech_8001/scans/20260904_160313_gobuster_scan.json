@@ -1,0 +1,24 @@
+{
+  "alternative_tool_suggested": "feroxbuster",
+  "execution_time": 0.010497331619262695,
+  "partial_results": false,
+  "recovery_info": {
+    "attempts_made": 1,
+    "final_action": "tool_switch_suggested",
+    "recovery_applied": true,
+    "recovery_history": [
+      {
+        "attempt": 1,
+        "error": "Error: error on parsing arguments: wordlist file \"/usr/share/wordlists/dirb/common.txt\" does not exist: stat /usr/share/wordlists/dirb/common.txt: no such file or directory\n",
+        "recovery_action": "switch_to_alternative_tool",
+        "timestamp": "2026-09-04T09:03:13.417021"
+      }
+    ]
+  },
+  "return_code": 1,
+  "stderr": "Error: error on parsing arguments: wordlist file \"/usr/share/wordlists/dirb/common.txt\" does not exist: stat /usr/share/wordlists/dirb/common.txt: no such file or directory\n",
+  "stdout": "",
+  "success": false,
+  "timed_out": false,
+  "timestamp": "2026-09-04T09:03:13.416083"
+}

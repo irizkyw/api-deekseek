@@ -1,0 +1,8 @@
+[DIR] scrapper-media
+[DIR] exam-satsibertni
+[DIR] ir-risetheranger
+[DIR] strix
+[DIR] api-deekseek
+[DIR] maketrip
+[DIR] azuba_recon
+[FILE] geolocsys_azuba_tech_executive_report.md

@@ -1,0 +1,10 @@
+{
+  "execution_time": 1.3724122047424316,
+  "partial_results": false,
+  "return_code": 0,
+  "stderr": "",
+  "stdout": "* Added cookie csrftoken=\"Up60AVabAohrr1qBPMPpxfcXXcN5p3uX\" for domain geolocsys.azuba.tech, path /, expire 1819963610\n< Set-Cookie: csrftoken=Up60AVabAohrr1qBPMPpxfcXXcN5p3uX; expires=Fri, 03 Sep 2027 09:26:50 GMT; Max-Age=31449600; Path=/; SameSite=Lax; Secure\n",
+  "success": true,
+  "timed_out": false,
+  "timestamp": "2026-09-04T09:26:50.526330"
+}

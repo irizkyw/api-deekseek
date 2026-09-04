@@ -1,0 +1,10 @@
+{
+  "execution_time": 25.648247718811035,
+  "partial_results": false,
+  "return_code": 0,
+  "stderr": "\n               __    _____           __         \n   _______  __/ /_  / __(_)___  ____/ /__  _____\n  / ___/ / / / __ \\/ /_/ / __ \\/ __  / _ \\/ ___/\n (__  ) /_/ / /_/ / __/ / / / / /_/ /  __/ /    \n/____/\\__,_/_.___/_/ /_/_/ /_/\\__,_/\\___/_/\n\n\t\tprojectdiscovery.io\n\n[\u001b[34mINF\u001b[0m] Current subfinder version v2.16.0 (\u001b[92mlatest\u001b[0m)\n[\u001b[34mINF\u001b[0m] Loading provider config from /root/.config/subfinder/provider-config.yaml\n[\u001b[34mINF\u001b[0m] Enumerating subdomains for geolocsys.azuba.tech\n[\u001b[34mINF\u001b[0m] Found 0 subdomains for geolocsys.azuba.tech in 25 seconds 176 milliseconds\n",
+  "stdout": "",
+  "success": true,
+  "timed_out": false,
+  "timestamp": "2026-09-04T08:45:26.436869"
+}

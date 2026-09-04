@@ -1,0 +1,10 @@
+{
+  "execution_time": 0.4674692153930664,
+  "partial_results": false,
+  "return_code": 0,
+  "stderr": "",
+  "stdout": "/usr/share/dirb/wordlists/common.txt\n",
+  "success": true,
+  "timed_out": false,
+  "timestamp": "2026-09-04T09:18:12.108903"
+}

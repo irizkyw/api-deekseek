@@ -1,0 +1,10 @@
+{
+  "execution_time": 3.272653818130493,
+  "partial_results": false,
+  "return_code": 0,
+  "stderr": "",
+  "stdout": "/usr/share/brutex/wordlists/password_medium.txt\n/usr/share/brutex/wordlists/mssql-default-userpass.txt\n/usr/share/brutex/wordlists/nameslist.txt\n/usr/share/brutex/wordlists/vnc-default-passwords.txt\n/usr/share/brutex/wordlists/namelist.txt\n/usr/share/brutex/wordlists/simple-users.txt\n/usr/share/brutex/wordlists/telnet-default-userpass.txt\n/usr/share/brutex/wordlists/password_weak.txt\n/usr/share/brutex/wordlists/windows-default-userpass.txt\n/usr/share/brutex/wordlists/postgres-default-userpass.txt\n/usr/share/brutex/wordlists/tomcat-default-userpass.txt\n/usr/share/brutex/wordlists/ftp-default-userpass.txt\n/usr/share/brutex/wordlists/snmp-strings.txt\n/usr/share/brutex/wordlists/mysql-default-userpass.txt\n/usr/share/brutex/wordlists/oracle-default-userpass.txt\n/usr/share/brutex/wordlists/ssh-default-userpass.txt\n/usr/share/brutex/wordlists/windows-users.txt\n/usr/share/dirb/wordlists/indexes.txt\n/usr/share/dirb/wordlists/vulns/jrun.txt\n/usr/share/dirb/wordlists/vulns/coldfusion.txt\n",
+  "success": true,
+  "timed_out": false,
+  "timestamp": "2026-09-04T09:17:56.816800"
+}

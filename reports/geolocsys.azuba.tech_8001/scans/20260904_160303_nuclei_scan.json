@@ -1,0 +1,15 @@
+{
+  "execution_time": 55.88613319396973,
+  "partial_results": false,
+  "recovery_info": {
+    "attempts_made": 1,
+    "recovery_applied": false,
+    "recovery_history": []
+  },
+  "return_code": 0,
+  "stderr": "\n                     __     _\n   ____  __  _______/ /__  (_)\n  / __ \\/ / / / ___/ / _ \\/ /\n / / / / /_/ / /__/ /  __/ /\n/_/ /_/\\__,_/\\___/_/\\___/_/   v3.11.1\n\n\t\tprojectdiscovery.io\n\n[\u001b[34mINF\u001b[0m] Current nuclei version: v3.11.1 (\u001b[92mlatest\u001b[0m)\n[\u001b[34mINF\u001b[0m] Current nuclei-templates version: v10.4.8 (\u001b[92mlatest\u001b[0m)\n[\u001b[34mINF\u001b[0m] New templates added in latest release: 112\n[\u001b[34mINF\u001b[0m] Templates loaded for current scan: 2383\n[\u001b[34mINF\u001b[0m] Executing 2383 signed templates from projectdiscovery/nuclei-templates\n[\u001b[34mINF\u001b[0m] Targets loaded for current scan: 1\n[\u001b[34mINF\u001b[0m] Templates clustered: 228 (Reduced 193 Requests)\n[\u001b[34mINF\u001b[0m] Using Interactsh Server: oast.me\n[\u001b[34mINF\u001b[0m] Scan completed in 55.194053603s. 0 matches found.\n[\u001b[34mINF\u001b[0m] HTTP connections: 4702 total, 554 new, 4148 reused (88.2%)\n",
+  "stdout": "",
+  "success": true,
+  "timed_out": false,
+  "timestamp": "2026-09-04T09:03:03.344467"
+}

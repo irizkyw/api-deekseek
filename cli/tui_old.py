@@ -96,6 +96,277 @@ load_dotenv()
 PREVIEW_MAX_WIDTH = 36   # chars wide for the chat-log thumbnail
 CHIP_MAX_WIDTH = 14       # chars wide for the small compose-area chip
 
+def strip_comments_safely(text: str) -> str:
+    """Safely strip // and /* */ comments while preserving URLs with http:// or https://."""
+    def replacer(match):
+        if match.group(1) is not None:
+            return match.group(1)
+        return ""
+    pattern = r'("(?:\\.|[^"\\])*")|//.*?$|/\*.*?\*/'
+    return re.sub(pattern, replacer, text, flags=re.DOTALL | re.MULTILINE)
+
+def clean_json_str(s: str) -> str:
+    """Cleans JSON strings from comments and trailing commas before closing braces."""
+    s = strip_comments_safely(s)
+    while True:
+        sub = re.sub(r",\s*([\}\]])", r"\1", s)
+        if sub == s:
+            break
+        s = sub
+    return s.strip()
+
+ANSI_ESCAPE = re.compile(r'\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])|\x1b\[[0-9;]*[mGKHFABCDEJsuhl]')
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI/VT100 escape codes from text."""
+    return ANSI_ESCAPE.sub('', text)
+
+def detect_repetition(text: str, window: int = 1500, min_repeats: int = 4) -> bool:
+    """Detects if recent generated text has entered a degenerate repetition loop."""
+    if len(text) < 400:
+        return False
+    tail = text[-window:] if len(text) > window else text
+    for cycle in (20, 30, 40, 50, 60, 70, 80, 90, 100, 120, 150, 200):
+        if len(tail) < cycle * min_repeats:
+            continue
+        sample = tail[-cycle:]
+        if tail.count(sample) >= min_repeats:
+            return True
+    return False
+
+def sanitize_for_display(text: str) -> str:
+    """Sanitizes text for clean terminal display, collapsing repetitive token loops and huge tool call arguments."""
+    if not text:
+        return text
+
+    # 1. Collapse repeating escaped patterns (like \ntwilio\nvonage...)
+    text = re.sub(r"((?:\\[nr][a-zA-Z0-9_\.\-/]+){2,10}?)\1{3,}", r"\1\n[dim]... (repetitive pattern collapsed) ...[/dim]", text)
+
+    # 2. Collapse repeating multi-line patterns
+    text = re.sub(r"((?:[\r\n]+[^\r\n]{1,80}){2,10}?)\1{3,}", r"\1\n[dim]... (repetitive pattern collapsed) ...[/dim]", text)
+
+    # 3. Truncate overly long tool call code blocks in markdown preview
+    def _truncate_args(match):
+        raw_json = match.group(1)
+        try:
+            data = json.loads(raw_json)
+            if isinstance(data, dict) and "tool" in data:
+                args = data.get("arguments", {})
+                if isinstance(args, dict):
+                    clean_args = {}
+                    modified = False
+                    for k, v in args.items():
+                        if isinstance(v, str) and len(v) > 250:
+                            v_clean = v[:250].replace("\n", " ").replace("\\n", " ")
+                            clean_args[k] = f"{v_clean} ... [+{len(v)-250} chars hidden in preview]"
+                            modified = True
+                        else:
+                            clean_args[k] = v
+                    if modified:
+                        clean_data = {"tool": data["tool"], "arguments": clean_args}
+                        clean_json = json.dumps(clean_data, indent=2, ensure_ascii=False)
+                        return f"```json\n{clean_json}\n```"
+        except Exception:
+            pass
+        return match.group(0)
+
+    text = re.sub(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", _truncate_args, text)
+    return text
+
+def format_tool_output(raw: str, max_lines: int = 150) -> str:
+    """
+    Clean and format tool output for console-style display:
+    - Strip ANSI escape codes
+    - Unescape literal \\n and \\r\\n into real line breaks
+    - Collapse excessive blank lines and repetitive patterns
+    - Truncate to max_lines cleanly
+    """
+    text = strip_ansi(raw)
+
+    # If text has escaped newlines like '\n' as literal string, unescape them so they split properly!
+    if '\\n' in text:
+        text = text.replace('\\r\\n', '\n').replace('\\n', '\n')
+
+    # Collapse repetitive lines
+    text = re.sub(r"((?:[\r\n]+[^\r\n]{1,80}){2,10}?)\1{3,}", r"\1\n[dim]... (repetitive lines collapsed) ...[/dim]", text)
+
+    # Split on carriage returns (\r) — keep only last segment of each \r-overwritten line
+    raw_lines = []
+    for line in text.split('\n'):
+        if '\r' in line:
+            line = line.split('\r')[-1]
+        raw_lines.append(line)
+
+    clean_lines = []
+    prev_line = None
+    rep_count = 0
+    for line in raw_lines:
+        stripped = line.rstrip()
+        # Collapse excessive consecutive blank lines
+        if stripped == '' and clean_lines and clean_lines[-1] == '':
+            continue
+        # Collapse repetitive duplicate lines
+        if stripped == prev_line and stripped != '':
+            rep_count += 1
+            if rep_count <= 2:
+                clean_lines.append(stripped)
+            elif rep_count == 3:
+                clean_lines.append("[dim]... (duplicate line omitted) ...[/dim]")
+            continue
+        else:
+            prev_line = stripped
+            rep_count = 1
+
+        clean_lines.append(stripped)
+
+    # Trim leading/trailing blank lines
+    while clean_lines and clean_lines[0] == '':
+        clean_lines.pop(0)
+    while clean_lines and clean_lines[-1] == '':
+        clean_lines.pop()
+
+    total = len(clean_lines)
+    if total > max_lines:
+        half = max_lines // 2
+        skipped = total - max_lines
+        clean_lines = clean_lines[:half] + [f"[dim]... ({skipped} lines truncated for display) ...[/dim]"] + clean_lines[-half:]
+
+    return '\n'.join(clean_lines)
+
+def save_local_tool_log(target_hint: str, tool_name: str, args: dict, result_text: str) -> str:
+    """Save tool output and scan logs locally to the user's laptop under reports/<target>/scans/."""
+    try:
+        raw_target = ""
+        if isinstance(args, dict):
+            raw_target = args.get("target") or args.get("url") or args.get("domain") or args.get("host") or ""
+        if not raw_target and target_hint:
+            raw_target = target_hint
+        
+        # Clean target: remove protocol, path, and port
+        clean_target = re.sub(r"^https?://", "", str(raw_target)).split("/")[0].replace(":", "_").strip()
+        clean_target = re.sub(r"[^a-zA-Z0-9_.-]", "_", clean_target)
+        if not clean_target:
+            clean_target = "general"
+
+        out_dir = Path("reports") / clean_target / "scans"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        is_json = False
+        parsed = None
+        try:
+            parsed = json.loads(result_text)
+            is_json = True
+        except Exception:
+            pass
+
+        ext = "json" if is_json else "txt"
+        clean_tool = re.sub(r"[^a-zA-Z0-9_-]", "_", tool_name)
+        file_path = out_dir / f"{ts}_{clean_tool}.{ext}"
+
+        if is_json and parsed is not None:
+            file_path.write_text(json.dumps(parsed, indent=2, ensure_ascii=False), encoding="utf-8")
+        else:
+            file_path.write_text(result_text, encoding="utf-8")
+
+        # Append to scans_summary.md
+        summary_file = Path("reports") / clean_target / "scans_summary.md"
+        if not summary_file.exists():
+            summary_file.write_text(
+                f"# Scan Summary for {clean_target}\n\n| Timestamp | Tool | Arguments | Log File |\n| --- | --- | --- | --- |\n",
+                encoding="utf-8"
+            )
+
+        args_summary = json.dumps(args, ensure_ascii=False)[:60].replace("|", "\\|") if isinstance(args, dict) else ""
+        rel_path = file_path.relative_to(Path("reports") / clean_target)
+        with summary_file.open("a", encoding="utf-8") as sf:
+            sf.write(f"| {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | `{tool_name}` | `{args_summary}` | [{file_path.name}]({rel_path}) |\n")
+
+        return str(file_path)
+    except Exception:
+        return ""
+
+def save_local_report(target_hint: str, report_text: str, session_id: str = "") -> str:
+    """Save assessment report directly to reports/<target>/ on user's laptop."""
+    try:
+        clean_target = re.sub(r"^https?://", "", str(target_hint or "general")).split("/")[0].replace(":", "_").strip()
+        clean_target = re.sub(r"[^a-zA-Z0-9_.-]", "_", clean_target)
+        if not clean_target:
+            clean_target = "general"
+
+        out_dir = Path("reports") / clean_target
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_file = out_dir / f"assessment_report_{ts}.md"
+
+        content = f"# Security Assessment Report - {clean_target}\n\n"
+        content += f"- **Target:** `{clean_target}`\n"
+        content += f"- **Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        if session_id:
+            content += f"- **Session ID:** `{session_id}`\n"
+        content += "\n---\n\n"
+        content += report_text.strip() + "\n"
+
+        report_file.write_text(content, encoding="utf-8")
+        return str(report_file)
+    except Exception:
+        return ""
+
+def extract_tool_call(text: str):
+    """Robustly extracts tool name and arguments from text, supporting diverse code block formats and raw JSON."""
+    if not text:
+        return None
+
+    # Try fenced code blocks (``` or ```` with optional json tag)
+    matches = re.findall(r"`{3,}(?:json)?\s*\n?(.*?)\n?`{3,}", text, re.DOTALL | re.IGNORECASE)
+    for raw in matches:
+        cleaned = clean_json_str(raw)
+        try:
+            data = json.loads(cleaned)
+            if isinstance(data, dict) and "tool" in data:
+                return data.get("tool"), data.get("arguments", {})
+        except Exception:
+            pass
+
+    # Fallback: scan for any balanced JSON block containing "tool"
+    for m in re.finditer(r'"tool"\s*:', text):
+        idx = m.start()
+        start = text.rfind("{", 0, idx)
+        if start != -1:
+            depth = 0
+            in_string = False
+            escape = False
+            for i in range(start, len(text)):
+                c = text[i]
+                if escape:
+                    escape = False
+                    continue
+                if c == "\\":
+                    escape = True
+                    continue
+                if c == '"':
+                    in_string = not in_string
+                    continue
+                if not in_string:
+                    if c == "{":
+                        depth += 1
+                    elif c == "}":
+                        depth -= 1
+                        if depth == 0:
+                            candidate = text[start:i+1]
+                            cleaned = clean_json_str(candidate)
+                            try:
+                                data = json.loads(cleaned)
+                                if isinstance(data, dict) and "tool" in data:
+                                    return data.get("tool"), data.get("arguments", {})
+                            except Exception:
+                                pass
+                            break
+
+    return None
+
+
 # ----------------------------------------------------------------------
 # Math rendering helper using rich.math
 # ----------------------------------------------------------------------
@@ -190,24 +461,49 @@ def render_image_preview(path: str, max_width: int = PREVIEW_MAX_WIDTH):
 
 
 def resolve_tagged_files(prompt: str) -> tuple[str, list[str]]:
-    # Regex to find @followed by path, handles quotes if path has spaces, e.g. @"file name.txt" or @file.txt
-    pattern = r'@(?:"([^"]+)"|([^\s]+))'
+    # Regex to find @followed by path, handles quotes and brackets: @[path], @"file name.txt", or @file.txt
+    pattern = r'@(?:"([^"]+)"|\[([^\]]+)\]|([^\s]+))'
     matches = re.findall(pattern, prompt)
     
     file_paths = []
     for m in matches:
-        path_str = m[0] if m[0] else m[1]
-        file_paths.append(path_str)
+        path_str = m[0] or m[1] or m[2]
+        path_str = path_str.strip('[]"\'').strip()
+        if path_str:
+            file_paths.append(path_str)
+
+    # Auto-detect skills mentioned by name from .agents/skills/ (e.g. "report-executive", "recon")
+    skills_dir = Path(".agents/skills")
+    if skills_dir.exists() and skills_dir.is_dir():
+        for skill_file in skills_dir.glob("*.md"):
+            skill_name = skill_file.stem.lower()
+            # If skill name appears as a word in user prompt
+            if re.search(rf'\b{re.escape(skill_name)}\b', prompt, re.IGNORECASE):
+                if str(skill_file) not in file_paths and skill_file.name not in file_paths:
+                    file_paths.append(str(skill_file))
         
     resolved_files_content = []
     clean_prompt = prompt
     
     for path_str in file_paths:
         p = Path(path_str)
+        if not p.exists() and not p.is_absolute():
+            # Try searching in .agents/skills/ or current directory
+            candidates = [
+                Path(".agents/skills") / p.name,
+                Path(".agents/skills") / f"{p.name}.md",
+                Path(p.name),
+            ]
+            for c in candidates:
+                if c.exists() and c.is_file():
+                    p = c
+                    break
+
         if p.exists() and p.is_file():
             try:
                 content = p.read_text(encoding='utf-8', errors='ignore')
-                resolved_files_content.append(f"\n\n--- [File Context: {p.name}] ---\n{content}\n----------------------------")
+                resolved_files_content.append(f"\n\n--- [Skill/File Context: {p.name}] ---\n{content}\n----------------------------")
+                clean_prompt = clean_prompt.replace(f"@[{path_str}]", f"[File: {p.name}]")
                 clean_prompt = clean_prompt.replace(f"@{path_str}", f"[File: {p.name}]")
                 clean_prompt = clean_prompt.replace(f"@\"{path_str}\"", f"[File: {p.name}]")
             except Exception as e:
@@ -436,9 +732,15 @@ class StatusBar(Static):
     n_files = reactive(0)
     n_images = reactive(0)
     session_id = reactive("")
+    working = reactive(False)        # True saat tool sedang dieksekusi
+    working_tool = reactive("")     # nama tool yang sedang jalan
 
     def render(self) -> Text:
         t = Text()
+        # Working indicator — paling atas, paling mencolok
+        if self.working:
+            t.append("⚙ ", style="bold #f0c040")
+            t.append(f"working ({self.working_tool})  ", style="bold #f0c040")
         t.append("● ", style="#3fb950" if self.thinking_on else "#f85149")
         t.append("thinking ", style="bold" if self.thinking_on else "dim")
         t.append("  ")
@@ -549,6 +851,12 @@ class ChatInput(Input):
     of touching the text field at all.
     """
 
+    def action_paste(self) -> None:
+        """Prevent double paste: Textual's Input.action_paste() pastes from internal clipboard
+        while the terminal's bracketed paste (events.Paste) simultaneously pastes OS clipboard,
+        causing text to appear duplicated. We let _on_paste handle it exclusively."""
+        pass
+
     def _on_paste(self, event: events.Paste) -> None:
         if ImageGrab is not None and Image is not None:
             try:
@@ -561,6 +869,8 @@ class ChatInput(Input):
                 app = self.app
                 if isinstance(app, DeepSeekApp):
                     app.paste_clipboard()
+                return
+
         # If multi-line text is pasted, Textual's default Input._on_paste discards
         # everything after the first line (line = event.text.splitlines()[0]).
         # Instead, attach the full multi-line text cleanly as an attached context file!
@@ -578,6 +888,7 @@ class ChatInput(Input):
             return
 
         super()._on_paste(event)
+        event.stop()
 
 
 class DeepSeekApp(App):
@@ -615,6 +926,8 @@ class DeepSeekApp(App):
         self.parent_message_id: str | None = None
         self._tool_call_depth = 0
         self.mcp_manager = None
+        self.current_target: str = ""
+        self.session_skills: dict[str, list[str]] = {}
 
     # ---------------------------------------------------------- layout
     def compose(self) -> ComposeResult:
@@ -1041,6 +1354,13 @@ class DeepSeekApp(App):
                         self.call_from_thread(log.write, f"[red]failed reading {p.name}: {e}[/red]")
 
         elif isinstance(img, str) and img.strip():
+            # If focused on input box, do not also attach text as a file to prevent duplicate paste
+            try:
+                chat_input = self.query_one("#user-input", ChatInput)
+                if self.focused == chat_input:
+                    return
+            except Exception:
+                pass
             self.attached_files.append(("clipboard_text", img))
             self.call_from_thread(self.sync_status)
             self.call_from_thread(log.write, f"[green]📎 attached clipboard text[/green] ({len(img)} chars)")
@@ -1053,7 +1373,7 @@ class DeepSeekApp(App):
         event.input.value = ""
         if not text:
             if self.attached_files or self.attached_images:
-                text = "Tolong analisis dan proses konten yang terlampir di atas."
+                text = "Target/scope terlampir. Lakukan autonomous security assessment end-to-end: surface recon, endpoint/asset discovery, analisis celah keamanan, hingga verifikasi temuan. Segera eksekusi tool MCP pertama sekarang secara otonom tanpa menunggu intervensi manual."
             else:
                 return
         self.handle_command(text)
@@ -1098,9 +1418,58 @@ class DeepSeekApp(App):
         if low.startswith("/dir "):
             self.change_directory(user_input[5:].strip().strip('"').strip("'"))
             return
+        if low in ("/report", "/save", "/executive", "/report-executive"):
+            # 1. Compile official Executive Assessment reports per report-executive.md
+            tgt = self.current_target or "geolocsys.azuba.tech"
+            try:
+                from utils.report_generator import generate_executive_reports
+                p_path, b_path = generate_executive_reports(tgt)
+                log.write(f"\n[bold green]✓ Executive Reports compiled per report-executive.md:[/bold green]")
+                log.write(f"  • [bold cyan]PENTEST VERSION:[/bold cyan] {p_path}")
+                log.write(f"  • [bold cyan]BOUNTY VERSION:[/bold cyan]  {b_path}")
+            except Exception as ex:
+                log.write(f"[yellow]Executive report notice: {ex}[/yellow]")
+
+            # 2. Also save raw conversation session transcript
+            history = self._history.get(self.session_id, [])
+            if history:
+                full_text = []
+                for role, text, ts in history:
+                    if role == "assistant":
+                        full_text.append(f"### Assistant [{ts}]\n\n{text}\n")
+                    elif role == "user" and not text.startswith("[Tool Result"):
+                        full_text.append(f"### User [{ts}]\n\n{text}\n")
+                saved_rep = save_local_report(tgt, "\n".join(full_text), self.session_id)
+                if saved_rep:
+                    log.write(f"[dim]✓ Raw session transcript saved: {saved_rep}[/dim]")
+            return
+
+        # Extract target hint if user typed a URL or domain (e.g. azuba.tech)
+        domain_match = re.search(r'(?:https?://)?([a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,}(?::\d+)?)', user_input)
+        if domain_match:
+            self.current_target = domain_match.group(1).split(":")[0]
 
         # normal chat message
-        prompt, _ = resolve_tagged_files(user_input)
+        prompt, matched_paths = resolve_tagged_files(user_input)
+
+        # Track active skills for this session so context is not lost across turns
+        if self.session_id not in self.session_skills:
+            self.session_skills[self.session_id] = []
+        for p in matched_paths:
+            if p not in self.session_skills[self.session_id]:
+                self.session_skills[self.session_id].append(p)
+
+        # If report-executive was activated in this session, keep its directive active
+        active_skill_stems = [Path(p).stem.lower() for p in self.session_skills.get(self.session_id, [])]
+        if "report-executive" in active_skill_stems and "report-executive" not in [Path(p).stem.lower() for p in matched_paths]:
+            prompt += (
+                "\n\n[MANDATORY SKILL DIRECTIVE - report-executive active in session:\n"
+                "- When producing or completing reports, you MUST strictly follow .agents/skills/report-executive.md.\n"
+                "- Generate BOTH 'comprehensive_security_assessment_report.md' (Pentest) and 'comprehensive_security_assessment_report_bounty.md' (Bounty).\n"
+                "- Include Executive Summary, Summary by Vulnerability Type (all 8 categories), Network Reconnaissance, and full Burp-ready raw HTTP POC blocks.\n"
+                "- Persist via save_deliverable(deliverable_type='REPORT', content=...) and save_deliverable(deliverable_type='BOUNTY', content=...)]"
+            )
+
         if self.attached_files:
             ctx = "\n".join(
                 f"\n\n--- [File Context: {n}] ---\n{c}\n----------------------------"
@@ -1137,7 +1506,17 @@ class DeepSeekApp(App):
 
     def attach_file(self, path_str: str) -> None:
         log = self.query_one("#chat-log", RichLog)
-        p = Path(path_str)
+        raw_path = path_str.strip().strip('"').strip("'")
+        if raw_path.startswith("/file "):
+            raw_path = raw_path[6:].strip().strip('"').strip("'")
+
+        # Check path in cwd, or relative to project root
+        p = Path(raw_path)
+        if not (p.exists() and p.is_file()):
+            proj_root = Path(__file__).resolve().parent.parent
+            if (proj_root / raw_path).is_file():
+                p = proj_root / raw_path
+
         if p.exists() and p.is_file():
             try:
                 content = p.read_text(encoding="utf-8", errors="ignore")
@@ -1147,7 +1526,7 @@ class DeepSeekApp(App):
             except Exception as e:
                 log.write(f"[red]failed to read {p.name}: {e}[/red]")
         else:
-            log.write(f"[red]file not found: {path_str}[/red]")
+            log.write(f"[red]file not found: {raw_path}[/red]")
 
     @work(thread=True)
     def attach_image(self, path_str: str) -> None:
@@ -1183,67 +1562,103 @@ class DeepSeekApp(App):
         except Exception as e:
             self.call_from_thread(log.write, f"[red]failed to start new session: {e}[/red]")
 
-    # ---------------------------------------------------------- streaming
+    # ---------------------------------------------------------- helpers: working indicator
+    def _set_working(self, is_working: bool, tool_name: str = "") -> None:
+        """Update the working status indicator in StatusBar (must be called from main thread via call_from_thread)."""
+        status = self.query_one(StatusBar)
+        status.working = is_working
+        status.working_tool = tool_name
+
+    # ---------------------------------------------------------- streaming (iterative, single-thread)
     @work(thread=True)
-    def send_message(self, prompt: str, _depth: int = 0) -> None:
+    def send_message(self, prompt: str) -> None:
+        """
+        Main agentic loop — runs entirely in ONE background thread using an iterative
+        while-loop instead of recursive calls.  This prevents the 'stops mid-way' bug
+        where each recursive @work(thread=True) call spawned a new thread that returned
+        immediately, orphaning the continuation.
+        """
         log = self.query_one("#chat-log", RichLog)
         if self.api is None:
             self.call_from_thread(log.write, "[red]API not initialised[/red]")
             return
 
-        if _depth > 40:
-            self.call_from_thread(log.write, "[red]⚠️ Too many tool calls in a row. Stopping.[/red]")
-            return
-
         ref_file_ids = [fid for _, fid in self.attached_images]
-        self.call_from_thread(
-            log.write,
-            f"\n[bold #3fb950]deepseek[/bold #3fb950] [dim]{datetime.now().strftime('%H:%M:%S')}[/dim]",
-        )
+        current_prompt = prompt
+        depth = 0
+        MAX_DEPTH = 40
 
-        # Inject system instructions and formatting guidelines
-        final_prompt = prompt
-        if not prompt.startswith("[Tool Result for"):
-            global_formatting = (
-                "\n\n=== SYSTEM INSTRUCTIONS & FORMATTING DIRECTIVES ===\n"
-                "- Do NOT use ellipsis abbreviations like '...', '(...)', or placeholder blocks inside mathematical steps, equations, derivations, or code blocks. You MUST write out all formulas, terms, expressions, and steps fully, completely, and explicitly so they are 100% clear.\n"
-                "- Always explain your reasoning step-by-step fully.\n"
-                "==================================================\n"
+        # Clear attachments now (before the loop)
+        attach_files_snapshot = list(self.attached_files)
+        self.attached_files.clear()
+        self.attached_images = [
+            (p, fid) for p, fid in self.attached_images if "temp_clipboard" not in p
+        ]
+        self.attached_images.clear()
+        self.call_from_thread(self.sync_status)
+
+        while depth <= MAX_DEPTH:
+            if depth > 0 and depth > MAX_DEPTH:
+                self.call_from_thread(log.write, "[red]⚠️ Batas maksimal tool calls tercapai (40). Berhenti.[/red]")
+                break
+
+            # --- Build final prompt with system instructions ---
+            if not current_prompt.startswith("[Tool Result for"):
+                global_formatting = (
+                    "\n\n=== SYSTEM INSTRUCTIONS & FORMATTING DIRECTIVES ===\n"
+                    "- Do NOT use ellipsis abbreviations like '...', '(...)', or placeholder blocks inside "
+                    "mathematical steps, equations, derivations, or code blocks. Write everything fully.\n"
+                    "- Always explain your reasoning step-by-step.\n"
+                    "==================================================\n"
+                )
+                final_prompt = current_prompt + global_formatting
+                if self.mcp_enabled and hasattr(self, "mcp_manager") and self.mcp_manager.tools:
+                    final_prompt += self.mcp_manager.get_system_prompt()
+            else:
+                final_prompt = current_prompt
+                if self.mcp_enabled and hasattr(self, "mcp_manager") and self.mcp_manager.tools:
+                    if hasattr(self.mcp_manager, "get_tool_reminder_prompt"):
+                        final_prompt += self.mcp_manager.get_tool_reminder_prompt()
+
+            # --- Print header for this turn ---
+            self.call_from_thread(
+                log.write,
+                f"\n[bold #3fb950]deepseek[/bold #3fb950] [dim]{datetime.now().strftime('%H:%M:%S')}[/dim]",
             )
-            final_prompt = prompt + global_formatting
-            
-            # Append MCP system prompt if tools are enabled
-            if self.mcp_enabled and hasattr(self, "mcp_manager") and self.mcp_manager.tools:
-                final_prompt += self.mcp_manager.get_system_prompt()
 
-        thinking_buf, response_buf = "", ""
-        sources_list: list[dict] = []
-        thinking_started, response_started = False, False
-        try:
-            chunks = self.api.chat_completion(
-                self.session_id,
-                final_prompt,
-                parent_message_id=self.parent_message_id,
-                thinking_enabled=self.thinking_enabled,
-                search_enabled=self.search_enabled,
-                ref_file_ids=ref_file_ids,
-            )
-            for chunk in chunks:
-                if chunk["type"] == "ready":
-                    self.parent_message_id = chunk["response_message_id"]
-                    self._parent_message_ids[self.session_id] = self.parent_message_id
-                elif chunk["type"] == "thinking":
-                    if not thinking_started:
-                        self.call_from_thread(log.write, "[dim italic]thinking…[/dim italic]")
-                        thinking_started = True
-                    thinking_buf += chunk["content"]
-                elif chunk["type"] == "text":
-                    if not response_started:
-                        response_started = True
-                    response_buf += chunk["content"]
-                elif chunk["type"] == "sources":
-                    sources_list.extend(chunk.get("sources", []))
+            # --- Stream response ---
+            thinking_buf, response_buf = "", ""
+            sources_list: list[dict] = []
+            thinking_started = False
 
+            try:
+                chunks = self.api.chat_completion(
+                    self.session_id,
+                    final_prompt,
+                    parent_message_id=self.parent_message_id,
+                    thinking_enabled=self.thinking_enabled,
+                    search_enabled=self.search_enabled,
+                    ref_file_ids=ref_file_ids if depth == 0 else [],
+                )
+                for chunk in chunks:
+                    if chunk["type"] == "ready":
+                        self.parent_message_id = chunk["response_message_id"]
+                        self._parent_message_ids[self.session_id] = self.parent_message_id
+                    elif chunk["type"] == "thinking":
+                        if not thinking_started:
+                            self.call_from_thread(log.write, "[dim italic]thinking…[/dim italic]")
+                            thinking_started = True
+                        thinking_buf += chunk["content"]
+                    elif chunk["type"] == "text":
+                        response_buf += chunk["content"]
+                    elif chunk["type"] == "sources":
+                        sources_list.extend(chunk.get("sources", []))
+
+            except Exception as e:
+                self.call_from_thread(log.write, f"[bold red]error:[/bold red] {e}")
+                break
+
+            # --- Render thinking ---
             if thinking_buf:
                 self.call_from_thread(
                     log.write,
@@ -1252,23 +1667,21 @@ class DeepSeekApp(App):
                 self._history.setdefault(self.session_id, []).append(
                     ("thinking", thinking_buf.strip(), datetime.now().strftime('%H:%M:%S'))
                 )
+
+            # --- Render response ---
             if response_buf:
                 self.last_response = response_buf
-                # Render LaTeX math in response
-                renderables = render_latex_in_text(response_buf)
-                # If no math blocks detected, fallback to Markdown
+                clean_display_buf = sanitize_for_display(response_buf)
+                renderables = render_latex_in_text(clean_display_buf)
                 if len(renderables) == 1 and isinstance(renderables[0], Text):
-                    # Plain text, render as Markdown
-                    self.call_from_thread(log.write, Markdown(response_buf))
+                    self.call_from_thread(log.write, Markdown(clean_display_buf))
                 else:
-                    # Mixed content: render each part
                     for r in renderables:
                         self.call_from_thread(log.write, r)
                 ts = datetime.now().strftime('%H:%M:%S')
                 self._history.setdefault(self.session_id, []).append(
                     ("assistant", response_buf, ts)
                 )
-                # display sources as footnotes
                 if sources_list:
                     lines = ["", "[dim]─── sources ──────────────────────────────────────────[/dim]"]
                     for i, s in enumerate(sources_list, 1):
@@ -1278,77 +1691,165 @@ class DeepSeekApp(App):
                         if url:
                             lines.append(f"[dim]    {url}[/dim]")
                     self.call_from_thread(log.write, "\n".join(lines))
-            # Check if DeepSeek requested to execute a tool (MCP mode) in either thinking or response buffer
-            combined_buf = thinking_buf + "\n" + response_buf
-            tool_called = False
 
-            if self.mcp_enabled and hasattr(self, "mcp_manager") and combined_buf.strip():
-                # Look for ```json ... ``` blocks
-                json_blocks = re.findall(r'```json\s*\n(.*?)\n```', combined_buf, re.DOTALL)
-                if not json_blocks:
-                    json_blocks = re.findall(r'```json\s*(.*?)\s*```', combined_buf, re.DOTALL)
+            # --- Cek apakah ada tool call ---
+            tool_info = None
+            if self.mcp_enabled and hasattr(self, "mcp_manager"):
+                tool_info = extract_tool_call(response_buf)
+                if not tool_info and thinking_buf:
+                    tool_info = extract_tool_call(thinking_buf)
 
-                for block in json_blocks:
-                    try:
-                        tool_data = json.loads(block.strip())
-                        if isinstance(tool_data, dict) and "tool" in tool_data:
-                            tool_name = tool_data["tool"]
-                            args = tool_data.get("arguments", {})
-
+            if not tool_info:
+                # Tidak ada tool call → selesai
+                if not response_buf:
+                    self.call_from_thread(log.write, "[dim](no response)[/dim]")
+                else:
+                    # Auto-save substantive report (>200 chars) to laptop
+                    if len(response_buf) > 200:
+                        saved_rep = save_local_report(self.current_target, response_buf, self.session_id)
+                        if saved_rep:
                             self.call_from_thread(
                                 log.write,
-                                f"\n[bold yellow]🔧 Running tool:[/bold yellow] [yellow]{tool_name}[/yellow] "
-                                f"with arguments: [dim]{json.dumps(args)}[/dim]"
+                                f"\n[bold green]📄 Assessment report saved to laptop:[/bold green] [cyan]{saved_rep}[/cyan]"
                             )
+                break  # exit loop
 
-                            # Execute tool
-                            self._tool_call_depth += 1
-                            tool_result = self.mcp_manager.call_tool(tool_name, args)
-                            self._tool_call_depth -= 1
+            # --- Eksekusi tool (masih di thread yang sama!) ---
+            tool_name, args = tool_info
+            args_summary = json.dumps(args, ensure_ascii=False)
+            if len(args_summary) > 250:
+                args_summary = args_summary[:250] + "... [truncated]"
+            args_summary = args_summary.replace("\\n", " ")
+            self.call_from_thread(
+                log.write,
+                f"\n[bold yellow]🔧 Running tool:[/bold yellow] [yellow]{tool_name}[/yellow] "
+                f"[dim]{args_summary}[/dim]"
+            )
+            # Tampilkan working indicator
+            self.call_from_thread(self._set_working, True, tool_name)
 
-                            # Display snippet of output (visual only in TUI console, full is sent to DeepSeek)
-                            max_len = 2500
-                            if len(tool_result) > max_len:
-                                snippet = tool_result[:max_len] + f"\n\n[yellow]... (visual truncation in TUI console; {len(tool_result) - max_len} more characters sent to DeepSeek) ...[/yellow]"
-                            else:
-                                snippet = tool_result
+            tool_result = ""
+            try:
+                tool_result = self.mcp_manager.call_tool(tool_name, args, target=self.current_target)
+            except Exception as err:
+                tool_result = f"[ERROR] Tool execution failed: {err}"
+                self.call_from_thread(log.write, f"[red]Tool execution error: {err}[/red]")
+            finally:
+                self.call_from_thread(self._set_working, False)
 
-                            self.call_from_thread(
-                                log.write,
-                                f"[bold green]✓ Tool Output:[/bold green]\n[dim]{snippet}[/dim]"
-                            )
+            # Update target hint if present in tool arguments
+            if isinstance(args, dict):
+                t_val = args.get("target") or args.get("url") or args.get("domain") or args.get("host")
+                if t_val:
+                    c_val = re.sub(r"^https?://", "", str(t_val)).split("/")[0].split(":")[0].strip()
+                    if c_val:
+                        self.current_target = c_val
 
-                            # Save tool execution to history cache
-                            self._history.setdefault(self.session_id, []).append(
-                                ("user", f"[Tool Result for '{tool_name}']\n{tool_result}", datetime.now().strftime('%H:%M:%S'))
-                            )
+            # Auto-save tool output locally on laptop!
+            saved_file = save_local_tool_log(self.current_target, tool_name, args, tool_result)
 
-                            # Auto follow-up to feed tool output to model
-                            follow_up = (
-                                f"[Tool Result for '{tool_name}']:\n"
-                                f"{tool_result}\n\n"
-                                f"Please analyze this tool output and provide your final response or call another tool if needed."
-                            )
-                            self.send_message(follow_up, _depth + 1)
-                            tool_called = True
-                            break  # Only run one tool call at a time to prevent conflicts
-                    except Exception:
-                        pass
+            # Tampilkan output dalam Console Panel (bersih, rapi)
+            cleaned_output = format_tool_output(tool_result, max_lines=150)
+            max_raw = 5000
+            # Build panel title
+            panel_title = f"[bold green]⬡ {tool_name}[/bold green]"
+            if saved_file:
+                panel_title += f" [dim](💾 {saved_file})[/dim]"
+            # Visual panel in TUI
+            from rich.syntax import Syntax
+            try:
+                # Try to detect JSON output
+                parsed = json.loads(tool_result)
+                if isinstance(parsed, dict) and ("stdout" in parsed or "stderr" in parsed):
+                    # Execution result: unpack stdout and stderr cleanly with REAL linebreaks
+                    stdout_str = str(parsed.get("stdout") or "")
+                    stderr_str = str(parsed.get("stderr") or "")
+                    ret_code = parsed.get("return_code", 0)
+                    exec_time = parsed.get("execution_time")
 
-            if not response_buf and not tool_called:
-                self.call_from_thread(log.write, "[dim](no response)[/dim]")
+                    body_blocks = []
+                    if stdout_str.strip():
+                        body_blocks.append(format_tool_output(stdout_str, max_lines=150))
+                    if stderr_str.strip():
+                        body_blocks.append(f"[red]STDERR:\n{format_tool_output(stderr_str, max_lines=50)}[/red]")
+                    if not body_blocks:
+                        body_blocks.append("[dim](no output produced)[/dim]")
 
-        except Exception as e:
-            self.call_from_thread(log.write, f"[bold red]error:[/bold red] {e}")
+                    meta_info = f"[dim]status: {'success' if parsed.get('success', True) else 'failed'} | exit: {ret_code}"
+                    if exec_time is not None:
+                        meta_info += f" | time: {exec_time:.2f}s" if isinstance(exec_time, (int, float)) else f" | time: {exec_time}"
+                    meta_info += "[/dim]"
 
-        # cleanup temp clipboard images if any
-        self.attached_images = [
-            (p, fid) for p, fid in self.attached_images if "temp_clipboard" not in p
-        ]
-        # Clear all attachments after sending the message (optional; user can re-add if needed)
-        self.attached_files.clear()
-        self.attached_images.clear()
-        self.call_from_thread(self.sync_status)
+                    full_panel_text = meta_info + "\n" + "\n".join(body_blocks)
+                    console_renderable = Text.from_markup(full_panel_text)
+                    note = None
+                elif isinstance(parsed, dict) and ("status" in parsed or "message" in parsed):
+                    # Helper tool result (e.g. deliverable saved, session status)
+                    status = parsed.get("status", "info")
+                    msg = parsed.get("message", "")
+                    d_type = parsed.get("deliverable_type", "")
+                    color = "green" if status == "success" else "yellow"
+                    txt = f"[{color}]● Status: {status}[/{color}]"
+                    if d_type:
+                        txt += f" | Deliverable: [bold]{d_type}[/bold]"
+                    if msg:
+                        txt += f"\n{msg}"
+                    if "saved_to" in parsed:
+                        for sp in parsed.get("saved_to", []):
+                            txt += f"\n  - 💾 [cyan]{sp}[/cyan]"
+                    console_renderable = Text.from_markup(txt)
+                    note = None
+                else:
+                    formatted_json = json.dumps(parsed, indent=2, ensure_ascii=False)
+                    console_renderable = Syntax(
+                        formatted_json[:2000],
+                        "json",
+                        theme="monokai",
+                        word_wrap=True,
+                        background_color="#0d1117",
+                    )
+                    if len(formatted_json) > 2000:
+                        note = Text(f"  ... +{len(formatted_json)-2000} chars truncated (full sent to DeepSeek)", style="dim yellow")
+                    else:
+                        note = None
+            except Exception:
+                # Plain text — clean and display in monospace with real linebreaks
+                console_renderable = Text(cleaned_output, style="#98c379", no_wrap=False)
+                if len(tool_result) > max_raw:
+                    note = Text(f"  ... +{len(tool_result)-max_raw} chars truncated (full sent to DeepSeek)", style="dim yellow")
+                else:
+                    note = None
+
+            self.call_from_thread(
+                log.write,
+                Panel(
+                    console_renderable,
+                    title=panel_title,
+                    border_style="#2ea043",
+                    title_align="left",
+                    padding=(0, 1),
+                )
+            )
+            if note:
+                self.call_from_thread(log.write, note)
+
+            # Simpan ke history
+            self._history.setdefault(self.session_id, []).append(
+                ("user", f"[Tool Result for '{tool_name}']\n{tool_result}", datetime.now().strftime('%H:%M:%S'))
+            )
+
+            # Siapkan follow-up prompt untuk iterasi berikutnya
+            current_prompt = (
+                f"[Tool Result for '{tool_name}']:\n"
+                f"{tool_result}\n\n"
+                "CRITICAL INSTRUCTION: Analyze the telemetry above.\n"
+                "- Proceed directly to the next logical step using another tool call: "
+                "```json {\"tool\": \"...\", \"arguments\": {...}} ```.\n"
+                "- If blocked (WAF, 403, Cloudflare) pivot to alternate subdomains, paths, or tools.\n"
+                "- Do NOT ask the user. Keep executing autonomously until objective is accomplished."
+            )
+            depth += 1
+            # Loop continues → next iteration sends follow_up
 
 
 def main():

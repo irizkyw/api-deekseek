@@ -1,0 +1,10 @@
+{
+  "execution_time": 0.004321575164794922,
+  "partial_results": false,
+  "return_code": 127,
+  "stderr": "/bin/sh: 1: feroxbuster: not found\n",
+  "stdout": "",
+  "success": false,
+  "timed_out": false,
+  "timestamp": "2026-09-04T10:23:55.616671"
+}

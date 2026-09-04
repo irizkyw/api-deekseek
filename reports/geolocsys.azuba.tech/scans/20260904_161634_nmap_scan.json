@@ -1,0 +1,15 @@
+{
+  "execution_time": 3.134535789489746,
+  "partial_results": false,
+  "recovery_info": {
+    "attempts_made": 1,
+    "recovery_applied": false,
+    "recovery_history": []
+  },
+  "return_code": 0,
+  "stderr": "Failed to resolve \"quick\".\n",
+  "stdout": "\nStarting Nmap 7.60 ( https://nmap.org ) at 2026-09-04 09:16 UTC\nNmap scan report for geolocsys.azuba.tech (157.245.203.246)\nHost is up (0.25s latency).\nrDNS record for 157.245.203.246: 003.geolocbackend\nNot shown: 995 closed ports\nPORT     STATE    SERVICE\n22/tcp   open     ssh\n80/tcp   filtered http\n443/tcp  filtered https\n8000/tcp open     http-alt\n8001/tcp open     vcom-tunnel\n\nNmap done: 1 IP address (1 host up) scanned in 3.10 seconds\n",
+  "success": true,
+  "timed_out": false,
+  "timestamp": "2026-09-04T09:16:34.132939"
+}
