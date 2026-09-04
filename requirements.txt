@@ -4,4 +4,11 @@ numpy
 nodriver
 drissionpage
 mcp
-python-dotenv
+python-dotenv
+setuptools<70
+fastapi
+pillow
+pyperclip
+rich
+rich_pixels
+textual

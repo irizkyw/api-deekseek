@@ -3,6 +3,7 @@ import sys
 import json
 import asyncio
 import threading
+from pathlib import Path
 from typing import Dict, Any, List, Tuple
 from mcp.client.stdio import stdio_client, StdioServerParameters
 from mcp.client.session import ClientSession
@@ -14,16 +15,28 @@ class MCPManager:
     """
     def __init__(self, config_path: str = None):
         if not config_path:
-            # Try to locate Claude Desktop config
+            candidates = [
+                os.getenv("MCP_CONFIG_PATH", ""),
+                os.path.join(os.getcwd(), "mcp_config.json"),
+                os.path.expanduser("~/.config/Claude/claude_desktop_config.json"),
+                os.path.expanduser("~/Library/Application Support/Claude/claude_desktop_config.json"),
+                os.path.expanduser("~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"),
+                os.path.expanduser("~/.config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json"),
+            ]
             appdata = os.getenv("APPDATA", "")
             if appdata:
-                config_path = os.path.join(appdata, "Claude", "claude_desktop_config.json")
-            else:
-                config_path = ""
+                candidates.append(os.path.join(appdata, "Claude", "claude_desktop_config.json"))
+
+            config_path = ""
+            for candidate in candidates:
+                if candidate and os.path.exists(candidate):
+                    config_path = candidate
+                    break
                 
         self.config_path = config_path
         self.sessions: Dict[str, ClientSession] = {}
         self.transports = []  # keep references to prevent garbage collection
+        self.errlog_files: List[Any] = []
         self.tools: Dict[str, Tuple[str, Any]] = {}  # {tool_name: (server_name, tool_obj)}
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(target=self._run_loop, daemon=True)
@@ -86,8 +99,15 @@ class MCPManager:
 
     async def _connect_server(self, name: str, command: str, args: List[str], env: Dict[str, str]):
         params = StdioServerParameters(command=command, args=args, env=env)
+        
+        # Redirect stderr to a log file so it doesn't pollute the terminal / TUI display
+        log_dir = Path(__file__).parent / "logs"
+        log_dir.mkdir(exist_ok=True)
+        errlog_file = open(log_dir / f"{name}_stderr.log", "a", encoding="utf-8")
+        self.errlog_files.append(errlog_file)
+
         # We need to maintain the stdio transport context manager
-        transport_ctx = stdio_client(params)
+        transport_ctx = stdio_client(params, errlog=errlog_file)
         read_stream, write_stream = await transport_ctx.__aenter__()
         
         session = ClientSession(read_stream, write_stream)
@@ -216,4 +236,10 @@ class MCPManager:
                 self.run_coro(ctx.__aexit__(None, None, None))
             except Exception:
                 pass
+        for f in self.errlog_files:
+            try:
+                f.close()
+            except Exception:
+                pass
+        self.errlog_files.clear()
         self.loop.call_soon_threadsafe(self.loop.stop)

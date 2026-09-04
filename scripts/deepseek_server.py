@@ -57,7 +57,16 @@ arguments = [
     #"-incognito" # You can add this line to open the browser in incognito mode by default
 ]
 
-browser_path = None if os.name == 'nt' else "/usr/bin/google-chrome"
+import shutil
+
+browser_path = None if os.name == 'nt' else (
+    shutil.which("google-chrome")
+    or shutil.which("google-chrome-stable")
+    or shutil.which("chromium")
+    or shutil.which("chromium-browser")
+    or shutil.which("brave")
+    or ("/usr/bin/google-chrome" if os.path.exists("/usr/bin/google-chrome") else None)
+)
 app = FastAPI()
 
 

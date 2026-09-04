@@ -16,6 +16,9 @@ Image paste:
 
 import os
 import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+import time
 import re
 import traceback
 import json
@@ -23,7 +26,22 @@ from pathlib import Path
 from datetime import datetime
 
 from dotenv import load_dotenv
-from mcp_client import MCPManager
+
+try:
+    import importlib.util
+    _client_path = Path(__file__).resolve().parent.parent / "mcp" / "client.py"
+    if _client_path.exists():
+        _spec = importlib.util.spec_from_file_location("local_mcp_client", _client_path)
+        _mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        MCPManager = _mod.MCPManager
+    else:
+        from mcp_client import MCPManager
+except Exception:
+    try:
+        from mcp_client import MCPManager
+    except ImportError:
+        MCPManager = None
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -720,8 +738,13 @@ class DeepSeekApp(App):
         sidebar.styles.display = "block" if self._sidebar_visible else "none"
 
     # ---------------------------------------------------------- conversation sidebar events
+    def _write_renderables(self, renderables: list) -> None:
+        log = self.query_one("#chat-log", RichLog)
+        for r in renderables:
+            log.write(r)
+
     def on_conversation_item_selected(self, event: ConversationItem.Selected) -> None:
-        """User clicked a conversation — switch to it and replay local history."""
+        """User clicked a conversation — switch to it and replay history asynchronously."""
         if event.session_id == self.session_id:
             return  # already active
         self.session_id = event.session_id
@@ -733,9 +756,23 @@ class DeepSeekApp(App):
         status = self.query_one(StatusBar)
         status.session_id = self.session_id
         self.sync_status()
-        # replay cached history
+
+        # refresh sidebar highlight
+        sidebar = self.query_one("#conv-sidebar", ConvSidebar)
+        sidebar.refresh_list(self.conversations, self.session_id)
+
         history = self._history.get(self.session_id, [])
-        # Filter out system instruction messages that might have been stored accidentally
+        if history:
+            log.write(f"[dim]↩ loading conversation ({len(history)} messages)…[/dim]")
+            self._render_cached_history(self.session_id, history)
+        else:
+            log.write(f"[dim]↩ switched to session {self.session_id[:16]}…[/dim]")
+            log.write("[dim]loading history from DeepSeek…[/dim]")
+            self._fetch_remote_history(self.session_id)
+
+    @work(thread=True)
+    def _render_cached_history(self, session_id: str, history: list) -> None:
+        """Render cached history in worker thread in progressive batches."""
         def is_system_instruction(content: str) -> bool:
             markers = [
                 "=== SYSTEM INSTRUCTION: LOCAL TOOLS AVAILABLE ===",
@@ -743,38 +780,48 @@ class DeepSeekApp(App):
                 "To call a tool, you MUST output a single valid JSON block"
             ]
             return any(m in content for m in markers)
-        
-        filtered_history = [(role, content, ts) for role, content, ts in history if not is_system_instruction(content)]
-        
-        if filtered_history:
-            for role, content, ts in filtered_history:
-                if role == "user":
-                    log.write(f"\n[bold #58a6ff]you[/bold #58a6ff] [dim]{ts}[/dim]")
-                    log.write(Text(content, style="#c9d1d9"))
-                elif role == "assistant":
-                    log.write(f"\n[bold #3fb950]deepseek[/bold #3fb950] [dim]{ts}[/dim]")
-                    # Render math in assistant messages
-                    renderables = render_latex_in_text(content)
-                    if len(renderables) == 1 and isinstance(renderables[0], Text):
-                        # fallback to Markdown if no math found
-                        log.write(Markdown(content))
-                    else:
-                        for r in renderables:
-                            log.write(r)
-                elif role == "thinking":
-                    log.write(Panel(content, title="reasoning", border_style="grey50", title_align="left"))
-        else:
-            # No local cache — fetch from API in background
-            log.write(f"[dim]↩ switched to session [/dim][dim]{self.session_id[:16]}…[/dim]")
-            log.write("[dim]loading history…[/dim]")
-            self._fetch_remote_history(self.session_id)
-        # refresh sidebar highlight
-        sidebar = self.query_one("#conv-sidebar", ConvSidebar)
-        sidebar.refresh_list(self.conversations, self.session_id)
+
+        filtered = [(role, content, ts) for role, content, ts in history if not is_system_instruction(content)]
+        log = self.query_one("#chat-log", RichLog)
+
+        batches = []
+        current_batch = []
+        for role, content, ts in filtered:
+            items = []
+            if role == "user":
+                items.append(f"\n[bold #58a6ff]you[/bold #58a6ff] [dim]{ts}[/dim]")
+                items.append(Text(content, style="#c9d1d9"))
+            elif role == "assistant":
+                items.append(f"\n[bold #3fb950]deepseek[/bold #3fb950] [dim]{ts}[/dim]")
+                renderables = render_latex_in_text(content)
+                if len(renderables) == 1 and isinstance(renderables[0], Text):
+                    items.append(Markdown(content))
+                else:
+                    items.extend(renderables)
+            elif role == "thinking":
+                items.append(Panel(content, title="reasoning", border_style="grey50", title_align="left"))
+
+            current_batch.extend(items)
+            if len(current_batch) >= 8:
+                batches.append(current_batch)
+                current_batch = []
+
+        if current_batch:
+            batches.append(current_batch)
+
+        if self.session_id != session_id:
+            return
+
+        self.call_from_thread(log.clear)
+        for batch in batches:
+            if self.session_id != session_id:
+                return
+            self.call_from_thread(self._write_renderables, batch)
+            time.sleep(0.01)
 
     @work(thread=True)
     def _fetch_remote_history(self, session_id: str) -> None:
-        """Fetch message history from DeepSeek API and render in chat log."""
+        """Fetch message history from DeepSeek API and render in chat log without freezing UI."""
         if self.api is None:
             return
         try:
@@ -783,82 +830,102 @@ class DeepSeekApp(App):
             messages = []
         log = self.query_one("#chat-log", RichLog)
         if not messages:
-            self.call_from_thread(log.write, "[dim](no history found for this session)[/dim]")
+            if self.session_id == session_id:
+                self.call_from_thread(log.write, "[dim](no history found for this session)[/dim]")
             return
 
-        def render_messages():
-            from datetime import datetime, timezone
-            log.clear()
-            for msg in messages:
-                role = (msg.get('role') or '').lower()  # 'user' or 'assistant'
-                # timestamp from inserted_at (Unix float)
-                inserted_at = msg.get('inserted_at')
-                if inserted_at:
-                    try:
-                        ts = datetime.fromtimestamp(float(inserted_at), tz=timezone.utc).strftime('%Y-%m-%d %H:%M')
-                    except Exception:
-                        ts = ''
-                else:
+        from datetime import datetime, timezone
+
+        batches = []
+        current_batch = []
+        parsed_history = []
+
+        for msg in messages:
+            if self.session_id != session_id:
+                return
+            role = (msg.get('role') or '').lower()
+            inserted_at = msg.get('inserted_at')
+            if inserted_at:
+                try:
+                    ts = datetime.fromtimestamp(float(inserted_at), tz=timezone.utc).strftime('%Y-%m-%d %H:%M')
+                except Exception:
                     ts = ''
+            else:
+                ts = ''
 
-                # /chat/history_messages returns flat fields: content, thinking_content
-                # (fragments field exists but may be empty in this endpoint)
-                content = msg.get('content') or ''
-                thinking_content = msg.get('thinking_content') or ''
-                thinking_elapsed = msg.get('thinking_elapsed_secs')
+            content = msg.get('content') or ''
+            thinking_content = msg.get('thinking_content') or ''
+            thinking_elapsed = msg.get('thinking_elapsed_secs')
 
-                # Fallback: parse from fragments if content empty
-                if not content and not thinking_content:
-                    fragments = msg.get('fragments') or []
-                    for frag in fragments:
-                        ftype = frag.get('type', '')
-                        if ftype in ('REQUEST', 'RESPONSE') and not content:
-                            content = frag.get('content', '')
-                        elif ftype == 'THINK' and not thinking_content:
-                            thinking_content = frag.get('content', '')
-                            thinking_elapsed = thinking_elapsed or frag.get('elapsed_secs')
+            if not content and not thinking_content:
+                fragments = msg.get('fragments') or []
+                for frag in fragments:
+                    ftype = frag.get('type', '')
+                    if ftype in ('REQUEST', 'RESPONSE') and not content:
+                        content = frag.get('content', '')
+                    elif ftype == 'THINK' and not thinking_content:
+                        thinking_content = frag.get('content', '')
+                        thinking_elapsed = thinking_elapsed or frag.get('elapsed_secs')
 
-                if role == 'user':
-                    # Strip injected system instruction blocks
-                    for marker in [
-                        '\n\n=== SYSTEM INSTRUCTION: LOCAL TOOLS AVAILABLE ===',
-                        '\n\n=== SYSTEM INSTRUCTIONS & FORMATTING DIRECTIVES ===',
-                    ]:
-                        idx = content.find(marker)
-                        if idx != -1:
-                            content = content[:idx]
-                    content = content.strip()
-                    if content:
-                        log.write(f"\n[bold #58a6ff]you[/bold #58a6ff] [dim]{ts}[/dim]")
-                        log.write(Text(content, style="#c9d1d9"))
-                        self._history.setdefault(session_id, []).append(('user', content, ts))
+            items = []
+            if role == 'user':
+                for marker in [
+                    '\n\n=== SYSTEM INSTRUCTION: LOCAL TOOLS AVAILABLE ===',
+                    '\n\n=== SYSTEM INSTRUCTIONS & FORMATTING DIRECTIVES ===',
+                ]:
+                    idx = content.find(marker)
+                    if idx != -1:
+                        content = content[:idx]
+                content = content.strip()
+                if content:
+                    items.append(f"\n[bold #58a6ff]you[/bold #58a6ff] [dim]{ts}[/dim]")
+                    items.append(Text(content, style="#c9d1d9"))
+                    parsed_history.append(('user', content, ts))
 
-                elif role == 'assistant':
-                    if thinking_content or content:
-                        log.write(f"\n[bold #3fb950]deepseek[/bold #3fb950] [dim]{ts}[/dim]")
-                    if thinking_content:
-                        elapsed_str = ''
-                        if thinking_elapsed:
-                            try:
-                                elapsed_str = f" ({float(thinking_elapsed):.1f}s)"
-                            except Exception:
-                                pass
-                        log.write(Panel(
-                            thinking_content,
-                            title=f"reasoning{elapsed_str}",
-                            border_style="grey50",
-                            title_align="left"
-                        ))
-                    if content:
-                        renderables = render_latex_in_text(content)
-                        if len(renderables) == 1 and isinstance(renderables[0], Text):
-                            log.write(Markdown(content))
-                        else:
-                            for r in renderables:
-                                log.write(r)
-                        self._history.setdefault(session_id, []).append(('assistant', content, ts))
+            elif role == 'assistant':
+                if thinking_content or content:
+                    items.append(f"\n[bold #3fb950]deepseek[/bold #3fb950] [dim]{ts}[/dim]")
+                if thinking_content:
+                    elapsed_str = ''
+                    if thinking_elapsed:
+                        try:
+                            elapsed_str = f" ({float(thinking_elapsed):.1f}s)"
+                        except Exception:
+                            pass
+                    items.append(Panel(
+                        thinking_content,
+                        title=f"reasoning{elapsed_str}",
+                        border_style="grey50",
+                        title_align="left"
+                    ))
+                if content:
+                    renderables = render_latex_in_text(content)
+                    if len(renderables) == 1 and isinstance(renderables[0], Text):
+                        items.append(Markdown(content))
+                    else:
+                        items.extend(renderables)
+                    parsed_history.append(('assistant', content, ts))
 
-        self.call_from_thread(render_messages)
+            if items:
+                current_batch.extend(items)
+                if len(current_batch) >= 8:
+                    batches.append(current_batch)
+                    current_batch = []
+
+        if current_batch:
+            batches.append(current_batch)
+
+        if self.session_id != session_id:
+            return
+
+        self._history[session_id] = parsed_history
+        self.call_from_thread(log.clear)
+
+        for batch in batches:
+            if self.session_id != session_id:
+                return
+            self.call_from_thread(self._write_renderables, batch)
+            time.sleep(0.01)
 
     def on_button_pressed(self, event) -> None:
         if event.button.id == "new-chat-btn":
