@@ -1,4 +1,4 @@
-# DeepSeek4Free
+# XCFADE
 
 A Python package for interacting with the DeepSeek AI chat API. This package provides a clean interface to interact with DeepSeek's chat model, with support for streaming responses, thinking process visibility, and web search capabilities.
 
@@ -26,8 +26,8 @@ A Python package for interacting with the DeepSeek AI chat API. This package pro
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/deepseek4free.git
-cd deepseek4free
+git clone https://github.com/xcfades/api-deekseek.git
+cd api-deekseek
 ```
 
 2. Install dependencies:
@@ -210,7 +210,7 @@ except APIError as e:
 
 ## 🤖 Model Context Protocol (MCP) Server
 
-`deepseek4free` now includes a Model Context Protocol (MCP) server so you can connect this free DeepSeek web client (supporting R1 thinking mode, web search, and image vision) directly to host tools like Claude Desktop, Cursor, or Cline.
+`XCFADE` now includes a Model Context Protocol (MCP) server so you can connect this free DeepSeek web client (supporting R1 thinking mode, web search, and image vision) directly to host tools like Claude Desktop, Cursor, or Cline.
 
 ### Configuration (e.g. Claude Desktop)
 
@@ -223,7 +223,7 @@ Add the following configuration to your `claude_desktop_config.json`:
     "deepseek-free": {
       "command": "python",
       "args": [
-        "d:/projs/deepseek/deepseek4free/mcp_server.py"
+        "d:/projs/deepseek/XCFADE/mcp_server.py"
       ],
       "env": {
         "DEEPSEEK_AUTH_TOKEN": "YOUR_DEEPSEEK_AUTH_TOKEN"
